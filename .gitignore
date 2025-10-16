@@ -131,7 +131,3 @@ docs/GENERATED_*.md
 
 wiki/
 lang_tests/
-
-# Session artifacts and temporary documentation drafts
-agent-logs/
-docs/
