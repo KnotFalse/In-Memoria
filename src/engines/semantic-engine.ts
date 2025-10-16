@@ -4,6 +4,7 @@ import { SemanticVectorDB } from '../storage/vector-db.js';
 import { nanoid } from 'nanoid';
 import { CircuitBreaker, createRustAnalyzerCircuitBreaker } from '../utils/circuit-breaker.js';
 import { globalProfiler, PerformanceOptimizer } from '../utils/performance-profiler.js';
+import { detectLanguageFromPath as resolveLanguageFromPath } from '../utils/language-registry.js';
 
 export interface CodebaseAnalysisResult {
   languages: string[];
@@ -53,7 +54,7 @@ export class SemanticEngine {
 
     // Create memoized versions of expensive operations
     this.memoizedLanguageDetection = PerformanceOptimizer.memoize(
-      this.detectLanguageFromPath.bind(this),
+      (filePath: string) => this.detectLanguageFromPath(filePath),
       (filePath: string) => filePath.split('.').pop() || 'unknown'
     );
 
@@ -453,18 +454,7 @@ export class SemanticEngine {
   }
 
   private detectLanguageFromPath(filePath: string): string {
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    const languageMap: Record<string, string> = {
-      'ts': 'typescript',
-      'tsx': 'typescript',
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'py': 'python',
-      'rs': 'rust',
-      'go': 'go',
-      'java': 'java'
-    };
-    return languageMap[ext || ''] || 'unknown';
+    return resolveLanguageFromPath(filePath);
   }
 
   /**

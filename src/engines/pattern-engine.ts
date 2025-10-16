@@ -2,6 +2,7 @@ import { PatternLearner } from '../rust-bindings.js';
 import { SQLiteDatabase, DeveloperPattern } from '../storage/sqlite-db.js';
 import { FileChange } from '../watchers/file-watcher.js';
 import { nanoid } from 'nanoid';
+import { detectLanguageFromPath } from '../utils/language-registry.js';
 
 export interface PatternExtractionResult {
   type: string;
@@ -85,18 +86,7 @@ export class PatternEngine {
   }
 
   private detectLanguage(filePath: string): string {
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    const languageMap: Record<string, string> = {
-      'ts': 'typescript',
-      'tsx': 'typescript', 
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'py': 'python',
-      'rs': 'rust',
-      'go': 'go',
-      'java': 'java'
-    };
-    return languageMap[ext || ''] || 'unknown';
+    return detectLanguageFromPath(filePath);
   }
 
   private generateContentHash(content: string): string {
