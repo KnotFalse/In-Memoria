@@ -3,7 +3,10 @@ import { SemanticEngine } from '../../engines/semantic-engine.js';
 import { PatternEngine } from '../../engines/pattern-engine.js';
 import { SQLiteDatabase } from '../../storage/sqlite-db.js';
 import { existsSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { PathValidator } from '../../utils/path-validator.js';
+import { config } from '../../config/config.js';
+import { Logger } from '../../utils/logger.js';
 
 export class MonitoringTools {
   constructor(
@@ -60,6 +63,19 @@ export class MonitoringTools {
             }
           }
         }
+      },
+      {
+        name: 'health_check',
+        description: 'Verify In-Memoria setup and configuration for a project. Checks database accessibility, project structure, and API keys.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'Project path to check (defaults to current directory)'
+            }
+          }
+        }
       }
     ];
   }
@@ -71,11 +87,11 @@ export class MonitoringTools {
     const includeMetrics = args.includeMetrics !== false;
     const includeDiagnostics = args.includeDiagnostics || false;
 
-    console.error('📊 Gathering system status...');
+    Logger.info('📊 Gathering system status...');
 
     const status = {
       timestamp: new Date().toISOString(),
-      version: '0.4.6',
+      version: '0.5.6',
       status: 'operational',
       components: {} as any,
       intelligence: {} as any,
@@ -111,7 +127,7 @@ export class MonitoringTools {
       };
 
     } catch (error: unknown) {
-      console.error('❌ Status check failed:', error);
+      Logger.info('❌ Status check failed:', error);
 
       return {
         success: false,
@@ -127,7 +143,7 @@ export class MonitoringTools {
   }): Promise<any> {
     const includeBreakdown = args.includeBreakdown !== false;
 
-    console.error('🧠 Analyzing intelligence metrics...');
+    Logger.info('🧠 Analyzing intelligence metrics...');
 
     try {
       const concepts = this.database.getSemanticConcepts();
@@ -216,7 +232,7 @@ export class MonitoringTools {
       };
 
     } catch (error: unknown) {
-      console.error('❌ Intelligence metrics failed:', error);
+      Logger.info('❌ Intelligence metrics failed:', error);
 
       return {
         success: false,
@@ -231,7 +247,7 @@ export class MonitoringTools {
   }): Promise<any> {
     const runBenchmark = args.runBenchmark || false;
 
-    console.error('⚡ Checking performance status...');
+    Logger.info('⚡ Checking performance status...');
 
     try {
       const performance = {
@@ -284,7 +300,7 @@ export class MonitoringTools {
 
       // Benchmark (if requested)
       if (runBenchmark) {
-        console.error('🏃 Running performance benchmark...');
+        Logger.info('🏃 Running performance benchmark...');
         performance.benchmark = await this.runQuickBenchmark();
       }
 
@@ -295,7 +311,7 @@ export class MonitoringTools {
       };
 
     } catch (error: unknown) {
-      console.error('❌ Performance check failed:', error);
+      Logger.info('❌ Performance check failed:', error);
 
       return {
         success: false,
@@ -461,5 +477,167 @@ export class MonitoringTools {
     benchmark.memoryDelta = Math.round((memoryAfter - benchmark.memoryBaseline) / 1024);
 
     return benchmark;
+  }
+
+  async healthCheck(args: { path?: string }): Promise<{
+    status: 'healthy' | 'warning' | 'error';
+    checks: {
+      name: string;
+      status: 'pass' | 'fail' | 'warning';
+      message: string;
+    }[];
+    summary: string;
+  }> {
+    const checks: Array<{ name: string; status: 'pass' | 'fail' | 'warning'; message: string }> = [];
+    const projectPath = args.path || process.cwd();
+
+    Logger.info(`🏥 Running health check for: ${projectPath}`);
+
+    // Check 1: Project path exists
+    try {
+      const pathExists = existsSync(projectPath);
+      checks.push({
+        name: 'Project Path',
+        status: pathExists ? 'pass' : 'fail',
+        message: pathExists
+          ? `Path exists: ${projectPath}`
+          : `Path does not exist: ${projectPath}`
+      });
+    } catch (error) {
+      checks.push({
+        name: 'Project Path',
+        status: 'fail',
+        message: `Error checking path: ${error}`
+      });
+    }
+
+    // Check 2: Project structure validation
+    try {
+      const looksValid = PathValidator.looksLikeProjectRoot(projectPath);
+      const description = PathValidator.describePath(projectPath);
+      checks.push({
+        name: 'Project Structure',
+        status: looksValid ? 'pass' : 'warning',
+        message: looksValid
+          ? `Valid project detected: ${description}`
+          : `No common project markers found. ${description}`
+      });
+    } catch (error) {
+      checks.push({
+        name: 'Project Structure',
+        status: 'warning',
+        message: `Could not analyze project structure: ${error}`
+      });
+    }
+
+    // Check 3: Database directory accessibility
+    try {
+      const dbPath = config.getDatabasePath(projectPath);
+      const dbDir = dirname(dbPath);
+      const dirExists = existsSync(dbDir);
+      checks.push({
+        name: 'Database Directory',
+        status: dirExists ? 'pass' : 'warning',
+        message: dirExists
+          ? `Directory exists and accessible: ${dbDir}`
+          : `Directory will be created on first use: ${dbDir}`
+      });
+
+      // Check if database file exists
+      if (existsSync(dbPath)) {
+        const stats = statSync(dbPath);
+        const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+        checks.push({
+          name: 'Database File',
+          status: 'pass',
+          message: `Database exists (${sizeMB} MB): ${dbPath}`
+        });
+      } else {
+        checks.push({
+          name: 'Database File',
+          status: 'warning',
+          message: `Database not yet created: ${dbPath}`
+        });
+      }
+    } catch (error) {
+      checks.push({
+        name: 'Database Directory',
+        status: 'fail',
+        message: `Error checking database: ${error}`
+      });
+    }
+
+    // Check 4: OpenAI API Key (optional but recommended)
+    checks.push({
+      name: 'OpenAI API Key',
+      status: process.env.OPENAI_API_KEY ? 'pass' : 'warning',
+      message: process.env.OPENAI_API_KEY
+        ? 'API key configured (vector embeddings enabled)'
+        : 'No API key - vector embeddings disabled (optional feature)'
+    });
+
+    // Check 5: Intelligence data status
+    try {
+      const dbPath = config.getDatabasePath(projectPath);
+      if (existsSync(dbPath)) {
+        const tempDb = new SQLiteDatabase(dbPath);
+        try {
+          const concepts = tempDb.getSemanticConcepts();
+          const patterns = tempDb.getDeveloperPatterns();
+          const hasIntelligence = concepts.length > 0 || patterns.length > 0;
+
+          checks.push({
+            name: 'Intelligence Data',
+            status: hasIntelligence ? 'pass' : 'warning',
+            message: hasIntelligence
+              ? `Intelligence available: ${concepts.length} concepts, ${patterns.length} patterns`
+              : 'No intelligence data - run learning to populate'
+          });
+        } finally {
+          tempDb.close();
+        }
+      } else {
+        checks.push({
+          name: 'Intelligence Data',
+          status: 'warning',
+          message: 'Database not initialized - run learning to create'
+        });
+      }
+    } catch (error) {
+      checks.push({
+        name: 'Intelligence Data',
+        status: 'warning',
+        message: `Could not check intelligence: ${error}`
+      });
+    }
+
+    // Determine overall status
+    const hasFailures = checks.some(c => c.status === 'fail');
+    const hasWarnings = checks.some(c => c.status === 'warning');
+    const overallStatus: 'healthy' | 'warning' | 'error' =
+      hasFailures ? 'error' : hasWarnings ? 'warning' : 'healthy';
+
+    // Generate summary
+    const passCount = checks.filter(c => c.status === 'pass').length;
+    const warnCount = checks.filter(c => c.status === 'warning').length;
+    const failCount = checks.filter(c => c.status === 'fail').length;
+
+    let summary = `Health check ${overallStatus}: ${passCount} passed`;
+    if (warnCount > 0) summary += `, ${warnCount} warnings`;
+    if (failCount > 0) summary += `, ${failCount} failures`;
+
+    if (overallStatus === 'error') {
+      summary += '. Critical issues detected - please address failures.';
+    } else if (overallStatus === 'warning') {
+      summary += '. Some recommendations available - see warnings.';
+    } else {
+      summary += '. All systems operational.';
+    }
+
+    return {
+      status: overallStatus,
+      checks,
+      summary
+    };
   }
 }

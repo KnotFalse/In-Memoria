@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS ai_insights (
 -- Project metadata and configuration
 CREATE TABLE IF NOT EXISTS project_metadata (
   project_id TEXT PRIMARY KEY,
-  project_path TEXT NOT NULL,
+  project_path TEXT NOT NULL UNIQUE,
   project_name TEXT,
   language_primary TEXT,
   languages_detected TEXT, -- JSON: all detected languages
@@ -89,6 +89,67 @@ CREATE TABLE IF NOT EXISTS project_metadata (
   updated_at DATETIME DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS feature_map (
+  id TEXT PRIMARY KEY,
+  project_path TEXT NOT NULL,
+  feature_name TEXT NOT NULL,
+  primary_files TEXT NOT NULL,    -- JSON array
+  related_files TEXT,              -- JSON array
+  dependencies TEXT,               -- JSON array
+  status TEXT DEFAULT 'active',
+  created_at DATETIME DEFAULT (datetime('now', 'utc')),
+  updated_at DATETIME DEFAULT (datetime('now', 'utc')),
+  FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+);
+
+CREATE TABLE IF NOT EXISTS entry_points (
+  id TEXT PRIMARY KEY,
+  project_path TEXT NOT NULL,
+  entry_type TEXT NOT NULL,       -- 'web', 'api', 'cli', 'worker'
+  file_path TEXT NOT NULL,
+  description TEXT,
+  framework TEXT,                 -- 'react', 'express', 'fastapi', etc.
+  created_at DATETIME DEFAULT (datetime('now', 'utc')),
+  FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+);
+
+CREATE TABLE IF NOT EXISTS key_directories (
+  id TEXT PRIMARY KEY,
+  project_path TEXT NOT NULL,
+  directory_path TEXT NOT NULL,
+  directory_type TEXT NOT NULL,   -- 'components', 'utils', 'services', 'auth', etc.
+  file_count INTEGER DEFAULT 0,
+  description TEXT,
+  created_at DATETIME DEFAULT (datetime('now', 'utc')),
+  FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+);
+
+CREATE TABLE IF NOT EXISTS work_sessions (
+  id TEXT PRIMARY KEY,
+  project_path TEXT NOT NULL,
+  session_start DATETIME DEFAULT (datetime('now', 'utc')),
+  session_end DATETIME,
+  last_feature TEXT,
+  current_files TEXT,           -- JSON array
+  completed_tasks TEXT,          -- JSON array
+  pending_tasks TEXT,            -- JSON array
+  blockers TEXT,                 -- JSON array
+  session_notes TEXT,
+  last_updated DATETIME DEFAULT (datetime('now', 'utc')),
+  FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+);
+
+CREATE TABLE IF NOT EXISTS project_decisions (
+  id TEXT PRIMARY KEY,
+  project_path TEXT NOT NULL,
+  decision_key TEXT NOT NULL,
+  decision_value TEXT NOT NULL,
+  reasoning TEXT,
+  made_at DATETIME DEFAULT (datetime('now', 'utc')),
+  UNIQUE(project_path, decision_key),
+  FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_semantic_concepts_type ON semantic_concepts(concept_type);
 CREATE INDEX IF NOT EXISTS idx_semantic_concepts_file ON semantic_concepts(file_path);
@@ -97,3 +158,10 @@ CREATE INDEX IF NOT EXISTS idx_developer_patterns_frequency ON developer_pattern
 CREATE INDEX IF NOT EXISTS idx_file_intelligence_analyzed ON file_intelligence(last_analyzed);
 CREATE INDEX IF NOT EXISTS idx_ai_insights_type ON ai_insights(insight_type);
 CREATE INDEX IF NOT EXISTS idx_ai_insights_confidence ON ai_insights(confidence_score DESC);
+CREATE INDEX IF NOT EXISTS idx_feature_map_project ON feature_map(project_path);
+CREATE INDEX IF NOT EXISTS idx_feature_map_name ON feature_map(feature_name);
+CREATE INDEX IF NOT EXISTS idx_entry_points_project ON entry_points(project_path);
+CREATE INDEX IF NOT EXISTS idx_key_directories_project ON key_directories(project_path);
+CREATE INDEX IF NOT EXISTS idx_work_sessions_project ON work_sessions(project_path);
+CREATE INDEX IF NOT EXISTS idx_work_sessions_updated ON work_sessions(last_updated DESC);
+CREATE INDEX IF NOT EXISTS idx_project_decisions_key ON project_decisions(project_path, decision_key);

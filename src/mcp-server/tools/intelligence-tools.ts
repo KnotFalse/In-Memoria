@@ -14,6 +14,7 @@ import { PatternEngine } from '../../engines/pattern-engine.js';
 import { SQLiteDatabase } from '../../storage/sqlite-db.js';
 import { SemanticVectorDB } from '../../storage/vector-db.js';
 import { config } from '../../config/config.js';
+import { PathValidator } from '../../utils/path-validator.js';
 
 export class IntelligenceTools {
   constructor(
@@ -27,7 +28,7 @@ export class IntelligenceTools {
     return [
       {
         name: 'learn_codebase_intelligence',
-        description: 'Learn and extract intelligence from a codebase, building persistent knowledge',
+        description: 'Build intelligence database from codebase (one-time setup, ~30-60s). Required before using predict_coding_approach, get_project_blueprint, or get_pattern_recommendations. Re-run with force=true if codebase has significant changes. Most users should use auto_learn_if_needed instead - it runs this automatically when needed.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -37,7 +38,7 @@ export class IntelligenceTools {
             },
             force: {
               type: 'boolean',
-              description: 'Force re-learning even if codebase was previously analyzed'
+              description: 'Force re-learning even if codebase was previously analyzed (use when codebase has significant changes)'
             }
           },
           required: ['path']
@@ -45,17 +46,17 @@ export class IntelligenceTools {
       },
       {
         name: 'get_semantic_insights',
-        description: 'Retrieve semantic insights about code concepts and relationships',
+        description: 'Search for code-level symbols (variables, functions, classes) by name and see their relationships, usage patterns, and evolution. Use this to find where a specific function/class is defined, how it\'s used, or what it depends on. Searches actual code identifiers (e.g., "DatabaseConnection", "processRequest"), NOT business concepts or natural language descriptions.',
         inputSchema: {
           type: 'object',
           properties: {
             query: {
               type: 'string',
-              description: 'Optional query to filter insights'
+              description: 'Code identifier to search for (e.g., "DatabaseConnection", "processRequest"). Matches against function/class/variable names, not descriptions.'
             },
             conceptType: {
               type: 'string',
-              description: 'Filter by concept type (class, function, interface, etc.)'
+              description: 'Filter by concept type (class, function, interface, variable, etc.)'
             },
             limit: {
               type: 'number',
@@ -68,7 +69,7 @@ export class IntelligenceTools {
       },
       {
         name: 'get_pattern_recommendations',
-        description: 'Get intelligent pattern recommendations based on coding context',
+        description: 'Get coding pattern recommendations learned from this codebase. Use this when implementing new features to follow existing patterns (e.g., "create a new service class", "add API endpoint"). Returns patterns like Factory, Singleton, DependencyInjection with confidence scores and actual examples from your code. These patterns are learned from the codebase, not hardcoded - they reflect how THIS project does things.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -82,11 +83,15 @@ export class IntelligenceTools {
             },
             problemDescription: {
               type: 'string',
-              description: 'Description of the problem being solved'
+              description: 'What you want to implement (e.g., "create a new service", "add database repository", "implement API handler")'
             },
             preferences: {
               type: 'object',
               description: 'Developer preferences and constraints'
+            },
+            includeRelatedFiles: {
+              type: 'boolean',
+              description: 'Include suggestions for related files where similar patterns are used'
             }
           },
           required: ['problemDescription']
@@ -94,17 +99,22 @@ export class IntelligenceTools {
       },
       {
         name: 'predict_coding_approach',
-        description: 'Predict the likely coding approach based on developer patterns and context',
+        description: 'Find which files to modify for a task using intelligent file routing. Use this when the user asks "where should I...", "what files...", or "how do I add/implement..." to route them directly to the relevant files without exploration. Returns target files, suggested starting point, and reasoning based on feature mapping and codebase intelligence.',
         inputSchema: {
           type: 'object',
           properties: {
             problemDescription: {
               type: 'string',
-              description: 'Description of the coding problem'
+              description: 'Description of what the user wants to add, modify, or implement (e.g., "add Ruby language support", "implement database caching", "fix authentication bug")'
             },
             context: {
               type: 'object',
               description: 'Additional context about the current codebase and requirements'
+            },
+            includeFileRouting: {
+              type: 'boolean',
+              description: 'Include smart file routing to identify target files for the task. Defaults to true. Set to false to disable.',
+              default: true
             }
           },
           required: ['problemDescription']
@@ -112,37 +122,42 @@ export class IntelligenceTools {
       },
       {
         name: 'get_developer_profile',
-        description: 'Get the learned developer profile including patterns, preferences, and expertise',
+        description: 'Get patterns and conventions learned from this codebase\'s code style. Shows frequently-used patterns (DI, Factory, etc.), naming conventions, and architectural preferences. Use this to understand "how we do things here" before writing new code. Note: This is about the codebase\'s style, not individual developers.',
         inputSchema: {
           type: 'object',
           properties: {
             includeRecentActivity: {
               type: 'boolean',
-              description: 'Include recent coding activity in the profile'
+              description: 'Include recent coding activity in the profile (patterns used in last 30 days)'
+            },
+            includeWorkContext: {
+              type: 'boolean',
+              description: 'Include current work session context (files, tasks, decisions)'
             }
           }
         }
       },
       {
         name: 'contribute_insights',
-        description: 'Allow AI agents to contribute insights back to the knowledge base',
+        description: 'Let AI agents save discovered insights (bug patterns, optimizations, best practices) back to In-Memoria for future reference. Use this when you discover a recurring pattern, potential bug, or refactoring opportunity that other agents/sessions should know about. Creates organizational memory across conversations.',
         inputSchema: {
           type: 'object',
           properties: {
             type: {
               type: 'string',
               enum: ['bug_pattern', 'optimization', 'refactor_suggestion', 'best_practice'],
-              description: 'Type of insight being contributed'
+              description: 'Type of insight: bug_pattern (recurring bugs), optimization (performance improvements), refactor_suggestion (code improvements), best_practice (recommended approaches)'
             },
             content: {
               type: 'object',
-              description: 'The insight content and details'
+              description: 'The insight details as a structured object. For best_practice: {practice: "...", reasoning: "..."}. For bug_pattern: {bugPattern: "...", fix: "..."}, etc.',
+              additionalProperties: true
             },
             confidence: {
               type: 'number',
               minimum: 0,
               maximum: 1,
-              description: 'Confidence score for this insight'
+              description: 'Confidence score for this insight (0.0 to 1.0)'
             },
             sourceAgent: {
               type: 'string',
@@ -151,9 +166,51 @@ export class IntelligenceTools {
             impactPrediction: {
               type: 'object',
               description: 'Predicted impact of applying this insight'
+            },
+            sessionUpdate: {
+              type: 'object',
+              description: 'Optional work session update',
+              properties: {
+                files: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Files currently being worked on'
+                },
+                feature: {
+                  type: 'string',
+                  description: 'Feature being worked on'
+                },
+                tasks: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Current tasks'
+                },
+                decisions: {
+                  type: 'object',
+                  description: 'Project decisions made'
+                }
+              }
             }
           },
           required: ['type', 'content', 'confidence', 'sourceAgent']
+        }
+      },
+      {
+        name: 'get_project_blueprint',
+        description: 'Get instant project blueprint - eliminates cold start exploration by providing tech stack, entry points, key directories, and architecture overview',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'Path to the project (defaults to current working directory)'
+            },
+            includeFeatureMap: {
+              type: 'boolean',
+              description: 'Include feature-to-file mapping (if available)',
+              default: true
+            }
+          }
         }
       }
     ];
@@ -163,151 +220,42 @@ export class IntelligenceTools {
     success: boolean;
     conceptsLearned: number;
     patternsLearned: number;
+    featuresLearned?: number;
     insights: string[];
     timeElapsed: number;
+    blueprint?: {
+      techStack: string[];
+      entryPoints: Record<string, string>;
+      keyDirectories: Record<string, string>;
+      architecture: string;
+    };
   }> {
-    const startTime = Date.now();
-    let projectDatabase: SQLiteDatabase | null = null;
-    let projectVectorDB: SemanticVectorDB | null = null;
-    let projectSemanticEngine: SemanticEngine | null = null;
-    let projectPatternEngine: PatternEngine | null = null;
-    
-    try {
-      // Create project-specific database and engines for learning
-      const projectDbPath = config.getDatabasePath(args.path);
-      projectDatabase = new SQLiteDatabase(projectDbPath);
-      projectVectorDB = new SemanticVectorDB(process.env.OPENAI_API_KEY);
-      projectSemanticEngine = new SemanticEngine(projectDatabase, projectVectorDB);
-      projectPatternEngine = new PatternEngine(projectDatabase);
-      
-      console.error(`🗄️ Using project database: ${projectDbPath}`);
-      
-      // Check if already learned and not forcing re-learn
-      if (!args.force) {
-        const existingIntelligence = await this.checkExistingIntelligenceInDatabase(projectDatabase, args.path);
-        if (existingIntelligence && existingIntelligence.concepts > 0) {
-          return {
-            success: true,
-            conceptsLearned: existingIntelligence.concepts,
-            patternsLearned: existingIntelligence.patterns,
-            insights: ['Using existing intelligence (use force: true to re-learn)'],
-            timeElapsed: Date.now() - startTime
-          };
-        }
-      }
-
-      const insights: string[] = [];
-      
-      // Phase 1: Comprehensive codebase analysis
-      insights.push('🔍 Phase 1: Analyzing codebase structure...');
-      const codebaseAnalysis = await projectSemanticEngine.analyzeCodebase(args.path);
-      insights.push(`   ✅ Detected languages: ${codebaseAnalysis.languages.join(', ')}`);
-      insights.push(`   ✅ Found frameworks: ${codebaseAnalysis.frameworks.join(', ') || 'none detected'}`);
-      insights.push(`   ✅ Complexity: ${codebaseAnalysis.complexity.cyclomatic.toFixed(1)} cyclomatic, ${codebaseAnalysis.complexity.cognitive.toFixed(1)} cognitive`);
-
-      // Phase 2: Deep semantic learning
-      insights.push('🧠 Phase 2: Learning semantic concepts...');
-      const concepts = await projectSemanticEngine.learnFromCodebase(args.path);
-      
-      // Analyze concept distribution
-      const conceptTypes = concepts.reduce((acc, concept) => {
-        const type = concept.type || 'unknown';
-        acc[type] = (acc[type] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-      
-      insights.push(`   ✅ Extracted ${concepts.length} semantic concepts:`);
-      Object.entries(conceptTypes).forEach(([type, count]) => {
-        insights.push(`     - ${count} ${type}${count > 1 ? 's' : ''}`);
-      });
-
-      // Phase 3: Pattern discovery and learning
-      insights.push('🔄 Phase 3: Discovering coding patterns...');
-      const patterns = await projectPatternEngine.learnFromCodebase(args.path);
-      
-      // Analyze pattern distribution
-      const patternTypes = patterns.reduce((acc, pattern) => {
-        const patternType = pattern.type || 'unknown';
-        const category = patternType.split('_')[0]; // Get category from pattern type
-        acc[category] = (acc[category] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-      
-      insights.push(`   ✅ Identified ${patterns.length} coding patterns:`);
-      Object.entries(patternTypes).forEach(([category, count]) => {
-        insights.push(`     - ${count} ${category} pattern${count > 1 ? 's' : ''}`);
-      });
-
-      // Phase 4: Relationship and dependency analysis
-      insights.push('🔗 Phase 4: Analyzing relationships and dependencies...');
-      const relationships = await this.analyzeCodebaseRelationships(concepts, patterns);
-      insights.push(`   ✅ Built ${relationships.conceptRelationships} concept relationships`);
-      insights.push(`   ✅ Identified ${relationships.dependencyPatterns} dependency patterns`);
-      
-      // Phase 5: Intelligence synthesis and storage
-      insights.push('💾 Phase 5: Synthesizing and storing intelligence...');
-      await this.storeIntelligence(args.path, concepts, patterns);
-      
-      // Generate learning insights based on discovered patterns
-      const learningInsights = await this.generateLearningInsights(concepts, patterns, codebaseAnalysis);
-      insights.push('🎯 Learning Summary:');
-      learningInsights.forEach(insight => insights.push(`   ${insight}`));
-      
-      // Phase 6: Vector embeddings for semantic search
-      insights.push('🔍 Phase 6: Building semantic search index...');
-      const vectorCount = await this.buildSemanticIndex(concepts, patterns);
-      insights.push(`   ✅ Created ${vectorCount} vector embeddings for semantic search`);
-      
-      const timeElapsed = Date.now() - startTime;
-      insights.push(`⚡ Learning completed in ${timeElapsed}ms`);
-      
-      return {
-        success: true,
-        conceptsLearned: concepts.length,
-        patternsLearned: patterns.length,
-        insights,
-        timeElapsed
-      };
-    } catch (error) {
-      return {
-        success: false,
-        conceptsLearned: 0,
-        patternsLearned: 0,
-        insights: [`❌ Learning failed: ${error instanceof Error ? error.message : error}`],
-        timeElapsed: Date.now() - startTime
-      };
-    } finally {
-      // Clean up project-specific resources
-      if (projectSemanticEngine) {
-        projectSemanticEngine.cleanup();
-      }
-      if (projectVectorDB) {
-        try {
-          await projectVectorDB.close();
-        } catch (error) {
-          console.warn('Warning: Failed to close project vector database:', error);
-        }
-      }
-      if (projectDatabase) {
-        projectDatabase.close();
-      }
-    }
+    // Use shared learning service to ensure consistency between CLI and MCP
+    const { LearningService } = await import('../../services/learning-service.js');
+    return await LearningService.learnFromCodebase(args.path, {
+      force: args.force
+    });
   }
 
-  async getSemanticInsights(args: { 
-    query?: string; 
-    conceptType?: string; 
-    limit?: number 
+  async getSemanticInsights(args: {
+    query?: string;
+    conceptType?: string;
+    limit?: number
   }): Promise<{
     insights: SemanticInsight[];
     totalAvailable: number;
   }> {
     const concepts = this.database.getSemanticConcepts();
+    // console.error(`🔍 getSemanticInsights: Retrieved ${concepts.length} concepts from database`);
+    // console.error(`   Query: "${args.query}", ConceptType: ${args.conceptType}`);
+
     const filtered = concepts.filter(concept => {
       if (args.conceptType && concept.conceptType !== args.conceptType) return false;
       if (args.query && !concept.conceptName.toLowerCase().includes(args.query.toLowerCase())) return false;
       return true;
     });
+
+    // console.error(`   Filtered to ${filtered.length} concepts`);
 
     const limit = args.limit || 10;
     const limited = filtered.slice(0, limit);
@@ -332,13 +280,16 @@ export class IntelligenceTools {
     };
   }
 
-  async getPatternRecommendations(args: CodingContext): Promise<{
+  async getPatternRecommendations(args: CodingContext & {
+    includeRelatedFiles?: boolean;
+  }): Promise<{
     recommendations: PatternRecommendation[];
     reasoning: string;
+    relatedFiles?: string[];
   }> {
     const context = CodingContextSchema.parse(args);
     const patterns = this.database.getDeveloperPatterns();
-    
+
     // Get relevant patterns based on context
     const relevantPatterns = await this.patternEngine.findRelevantPatterns(
       context.problemDescription,
@@ -354,31 +305,92 @@ export class IntelligenceTools {
       reasoning: `Based on ${pattern.frequency} similar occurrences in your codebase`
     }));
 
-    return {
+    const result: {
+      recommendations: PatternRecommendation[];
+      reasoning: string;
+      relatedFiles?: string[];
+    } = {
       recommendations,
       reasoning: `Found ${recommendations.length} relevant patterns based on your coding history and current context`
     };
+
+    if (args.includeRelatedFiles) {
+      const projectPath = process.cwd();
+      const files = await this.patternEngine.findFilesUsingPatterns(relevantPatterns, projectPath);
+      result.relatedFiles = files;
+    }
+
+    return result;
   }
 
-  async predictCodingApproach(args: { 
-    problemDescription: string; 
-    context?: Record<string, any> 
-  }): Promise<CodingApproachPrediction> {
+  async predictCodingApproach(args: {
+    problemDescription: string;
+    context?: Record<string, any>;
+    includeFileRouting?: boolean;
+  }): Promise<CodingApproachPrediction & {
+    fileRouting?: {
+      intendedFeature: string;
+      targetFiles: string[];
+      workType: string;
+      suggestedStartPoint: string;
+      confidence: number;
+      reasoning: string;
+    }
+  }> {
+    // console.error(`🔍 MCP predictCodingApproach called with args: ${JSON.stringify(args)}`);
+
     const prediction = await this.patternEngine.predictApproach(
       args.problemDescription,
       args.context || {}
     );
 
-    return {
+    const result: CodingApproachPrediction & {
+      fileRouting?: {
+        intendedFeature: string;
+        targetFiles: string[];
+        workType: string;
+        suggestedStartPoint: string;
+        confidence: number;
+        reasoning: string;
+      }
+    } = {
       approach: prediction.approach,
       confidence: prediction.confidence,
       reasoning: prediction.reasoning,
       suggestedPatterns: prediction.patterns,
       estimatedComplexity: prediction.complexity
     };
+
+    // Default to true for file routing (workaround for Claude Code not passing boolean params)
+    // Other MCP clients can explicitly set to false if they don't want routing
+    const includeRouting = args.includeFileRouting !== false;
+
+    if (includeRouting) {
+      const projectPath = process.cwd();
+      // console.error(`🔍 MCP predictCodingApproach: includeFileRouting=${includeRouting}, projectPath=${projectPath}`);
+      const routing = await this.patternEngine.routeRequestToFiles(args.problemDescription, projectPath);
+      // console.error(`🔍 MCP routing result: ${routing ? 'found' : 'null'}`);
+      if (routing) {
+        // console.error(`🔍 MCP routing feature: ${routing.intendedFeature}, files: ${routing.targetFiles.length}`);
+        result.fileRouting = {
+          intendedFeature: routing.intendedFeature,
+          targetFiles: routing.targetFiles,
+          workType: routing.workType,
+          suggestedStartPoint: routing.suggestedStartPoint,
+          confidence: routing.confidence,
+          reasoning: routing.reasoning
+        };
+      }
+    }
+
+    // console.error(`🔍 MCP returning result with fileRouting: ${!!result.fileRouting}`);
+    return result;
   }
 
-  async getDeveloperProfile(args: { includeRecentActivity?: boolean }): Promise<DeveloperProfile> {
+  async getDeveloperProfile(args: {
+    includeRecentActivity?: boolean;
+    includeWorkContext?: boolean;
+  }): Promise<DeveloperProfile> {
     const patterns = this.database.getDeveloperPatterns();
     const recentPatterns = patterns.filter(p => {
       const daysSinceLastSeen = Math.floor(
@@ -401,23 +413,50 @@ export class IntelligenceTools {
         testingApproach: this.extractTestingApproach(patterns)
       },
       expertiseAreas: this.extractExpertiseAreas(patterns),
-      recentFocus: args.includeRecentActivity ? 
+      recentFocus: args.includeRecentActivity ?
         this.extractRecentFocus(recentPatterns) : []
     };
+
+    if (args.includeWorkContext) {
+      const projectPath = process.cwd();
+      const session = this.database.getCurrentWorkSession(projectPath);
+
+      if (session) {
+        const decisions = this.database.getProjectDecisions(projectPath, 5);
+        profile.currentWork = {
+          lastFeature: session.lastFeature,
+          currentFiles: session.currentFiles,
+          pendingTasks: session.pendingTasks,
+          recentDecisions: decisions.map(d => ({
+            key: d.decisionKey,
+            value: d.decisionValue,
+            reasoning: d.reasoning
+          }))
+        };
+      }
+    }
 
     return profile;
   }
 
-  async contributeInsights(args: AIInsights): Promise<{
+  async contributeInsights(args: AIInsights & {
+    sessionUpdate?: {
+      files?: string[];
+      feature?: string;
+      tasks?: string[];
+      decisions?: Record<string, string>;
+    };
+  }): Promise<{
     success: boolean;
     insightId: string;
     message: string;
+    sessionUpdated?: boolean;
   }> {
     const validatedInsight = AIInsightsSchema.parse(args);
-    
+
     try {
       const insightId = `insight_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
+
       this.database.insertAIInsight({
         insightId,
         insightType: validatedInsight.type,
@@ -428,16 +467,191 @@ export class IntelligenceTools {
         impactPrediction: validatedInsight.impactPrediction || {}
       });
 
+      let sessionUpdated = false;
+      if (args.sessionUpdate) {
+        await this.updateWorkSession(args.sessionUpdate);
+        sessionUpdated = true;
+      }
+
       return {
         success: true,
         insightId,
-        message: 'Insight contributed successfully and pending validation'
+        message: 'Insight contributed successfully and pending validation',
+        ...(sessionUpdated && { sessionUpdated })
       };
     } catch (error) {
       return {
         success: false,
         insightId: '',
         message: `Failed to contribute insight: ${error}`
+      };
+    }
+  }
+
+  private async updateWorkSession(sessionUpdate: {
+    files?: string[];
+    feature?: string;
+    tasks?: string[];
+    decisions?: Record<string, string>;
+  }): Promise<void> {
+    const projectPath = process.cwd();
+    const { nanoid } = await import('nanoid');
+
+    let session = this.database.getCurrentWorkSession(projectPath);
+
+    if (!session) {
+      this.database.createWorkSession({
+        id: nanoid(),
+        projectPath,
+        currentFiles: sessionUpdate.files || [],
+        completedTasks: [],
+        pendingTasks: sessionUpdate.tasks || [],
+        blockers: [],
+        lastFeature: sessionUpdate.feature
+      });
+      session = this.database.getCurrentWorkSession(projectPath);
+    }
+
+    if (session) {
+      const updates: any = {};
+
+      if (sessionUpdate.files) {
+        updates.currentFiles = sessionUpdate.files;
+      }
+      if (sessionUpdate.feature) {
+        updates.lastFeature = sessionUpdate.feature;
+      }
+      if (sessionUpdate.tasks) {
+        updates.pendingTasks = sessionUpdate.tasks;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        this.database.updateWorkSession(session.id, updates);
+      }
+    }
+
+    if (sessionUpdate.decisions) {
+      for (const [key, value] of Object.entries(sessionUpdate.decisions)) {
+        this.database.upsertProjectDecision({
+          id: nanoid(),
+          projectPath,
+          decisionKey: key,
+          decisionValue: value
+        });
+      }
+    }
+  }
+
+  async getProjectBlueprint(args: { path?: string; includeFeatureMap?: boolean }): Promise<{
+    techStack: string[];
+    entryPoints: Record<string, string>;
+    keyDirectories: Record<string, string>;
+    architecture: string;
+    featureMap?: Record<string, string[]>;
+    learningStatus?: {
+      hasIntelligence: boolean;
+      isStale: boolean;
+      conceptsStored: number;
+      patternsStored: number;
+      recommendation: string;
+      message: string;
+    };
+  }> {
+    // Validate and resolve project path with warnings
+    const projectPath = PathValidator.validateAndWarnProjectPath(args.path, 'get_project_blueprint');
+    const { config } = await import('../../config/config.js');
+    const projectDbPath = config.getDatabasePath(projectPath);
+    const projectDatabase = new SQLiteDatabase(projectDbPath);
+
+    try {
+      // Get entry points from database
+      const entryPoints = projectDatabase.getEntryPoints(projectPath);
+      const entryPointsMap = entryPoints.reduce((acc, ep) => {
+        acc[ep.entryType] = ep.filePath;
+        return acc;
+      }, {} as Record<string, string>);
+
+      // Get key directories from database
+      const keyDirs = projectDatabase.getKeyDirectories(projectPath);
+      const keyDirsMap = keyDirs.reduce((acc, dir) => {
+        acc[dir.directoryType] = dir.directoryPath;
+        return acc;
+      }, {} as Record<string, string>);
+
+      // Get feature map if requested
+      let featureMap: Record<string, string[]> | undefined;
+      if (args.includeFeatureMap) {
+        const features = projectDatabase.getFeatureMaps(projectPath);
+        featureMap = features.reduce((acc, feature) => {
+          acc[feature.featureName] = feature.primaryFiles;
+          return acc;
+        }, {} as Record<string, string[]>);
+      }
+
+      // Infer tech stack from entry points
+      const techStack = [...new Set(entryPoints.map(ep => ep.framework).filter(Boolean))] as string[];
+
+      // Infer architecture from directory structure
+      const architecture = this.inferArchitectureFromBlueprint({
+        frameworks: techStack,
+        keyDirectories: keyDirs
+      });
+
+      // Get learning status (Phase 4 enhancement - replaces get_learning_status tool)
+      const learningStatus = await this.getLearningStatus(projectDatabase, projectPath);
+
+      return {
+        techStack,
+        entryPoints: entryPointsMap,
+        keyDirectories: keyDirsMap,
+        architecture,
+        ...(featureMap && Object.keys(featureMap).length > 0 ? { featureMap } : {}),
+        learningStatus
+      };
+    } finally {
+      projectDatabase.close();
+    }
+  }
+
+  /**
+   * Get learning/intelligence status for the project
+   * Phase 4: Merged from automation-tools get_learning_status
+   */
+  private async getLearningStatus(database: SQLiteDatabase, projectPath: string): Promise<{
+    hasIntelligence: boolean;
+    isStale: boolean;
+    conceptsStored: number;
+    patternsStored: number;
+    recommendation: string;
+    message: string;
+  }> {
+    try {
+      const concepts = database.getSemanticConcepts();
+      const patterns = database.getDeveloperPatterns();
+
+      const hasIntelligence = concepts.length > 0 || patterns.length > 0;
+
+      // Simple staleness check - could be enhanced with file modification time comparison
+      const isStale = false; // For now, assume not stale unless we implement file time checking
+
+      return {
+        hasIntelligence,
+        isStale,
+        conceptsStored: concepts.length,
+        patternsStored: patterns.length,
+        recommendation: hasIntelligence && !isStale ? 'ready' : 'learning_recommended',
+        message: hasIntelligence && !isStale
+          ? `Intelligence is ready! ${concepts.length} concepts and ${patterns.length} patterns available.`
+          : `Learning recommended for optimal functionality.`
+      };
+    } catch (error) {
+      return {
+        hasIntelligence: false,
+        isStale: false,
+        conceptsStored: 0,
+        patternsStored: 0,
+        recommendation: 'learning_needed',
+        message: 'No intelligence data available. Learning needed for optimal functionality.'
       };
     }
   }
@@ -622,6 +836,83 @@ export class IntelligenceTools {
     }
     
     return insights;
+  }
+
+  private async storeProjectBlueprint(
+    projectPath: string,
+    codebaseAnalysis: any,
+    database: SQLiteDatabase
+  ): Promise<void> {
+    const { nanoid } = await import('nanoid');
+
+    // Store entry points
+    if (codebaseAnalysis.entryPoints && Array.isArray(codebaseAnalysis.entryPoints)) {
+      for (const entryPoint of codebaseAnalysis.entryPoints) {
+        database.insertEntryPoint({
+          id: nanoid(),
+          projectPath,
+          entryType: entryPoint.type,
+          filePath: entryPoint.filePath,
+          description: entryPoint.description,
+          framework: entryPoint.framework
+        });
+      }
+    }
+
+    // Store key directories
+    if (codebaseAnalysis.keyDirectories && Array.isArray(codebaseAnalysis.keyDirectories)) {
+      for (const directory of codebaseAnalysis.keyDirectories) {
+        database.insertKeyDirectory({
+          id: nanoid(),
+          projectPath,
+          directoryPath: directory.path,
+          directoryType: directory.type,
+          fileCount: directory.fileCount,
+          description: directory.description
+        });
+      }
+    }
+  }
+
+  private inferArchitecturePattern(codebaseAnalysis: any): string {
+    const frameworks = codebaseAnalysis.frameworks || [];
+    const directories = codebaseAnalysis.keyDirectories || [];
+
+    if (frameworks.some((f: string) => f.toLowerCase().includes('react'))) {
+      return 'Component-Based (React)';
+    } else if (frameworks.some((f: string) => f.toLowerCase().includes('express'))) {
+      return 'REST API (Express)';
+    } else if (frameworks.some((f: string) => f.toLowerCase().includes('fastapi'))) {
+      return 'REST API (FastAPI)';
+    } else if (directories.some((d: any) => d.type === 'services')) {
+      return 'Service-Oriented';
+    } else if (directories.some((d: any) => d.type === 'components')) {
+      return 'Component-Based';
+    } else if (directories.some((d: any) => d.type === 'models' && d.type === 'views')) {
+      return 'MVC Pattern';
+    } else {
+      return 'Modular';
+    }
+  }
+
+  private inferArchitectureFromBlueprint(blueprint: { frameworks: string[]; keyDirectories: any[] }): string {
+    const { frameworks, keyDirectories } = blueprint;
+
+    if (frameworks.some(f => f.toLowerCase().includes('react'))) {
+      return 'Component-Based (React)';
+    } else if (frameworks.some(f => f.toLowerCase().includes('express'))) {
+      return 'REST API (Express)';
+    } else if (frameworks.some(f => f.toLowerCase().includes('fastapi'))) {
+      return 'REST API (FastAPI)';
+    } else if (keyDirectories.some(d => d.directoryType === 'services')) {
+      return 'Service-Oriented';
+    } else if (keyDirectories.some(d => d.directoryType === 'components')) {
+      return 'Component-Based';
+    } else if (keyDirectories.some(d => d.directoryType === 'models') && keyDirectories.some(d => d.directoryType === 'views')) {
+      return 'MVC Pattern';
+    } else {
+      return 'Modular';
+    }
   }
 
   private async buildSemanticIndex(concepts: any[], patterns: any[]): Promise<number> {

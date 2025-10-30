@@ -1,6 +1,7 @@
-import { PatternLearner } from '../rust-bindings.js';
+import { PatternLearner, BlueprintAnalyzer } from '../rust-bindings.js';
 import { SQLiteDatabase, DeveloperPattern } from '../storage/sqlite-db.js';
 import { FileChange } from '../watchers/file-watcher.js';
+import { CircuitBreaker, createRustAnalyzerCircuitBreaker } from '../utils/circuit-breaker.js';
 import { nanoid } from 'nanoid';
 import { detectLanguageFromPath } from '../utils/language-registry.js';
 
@@ -35,9 +36,11 @@ export interface RelevantPattern {
 
 export class PatternEngine {
   private rustLearner: InstanceType<typeof PatternLearner>;
+  private rustCircuitBreaker: CircuitBreaker;
 
   constructor(private database: SQLiteDatabase) {
     this.rustLearner = new PatternLearner();
+    this.rustCircuitBreaker = createRustAnalyzerCircuitBreaker();
   }
 
   async extractPatterns(path: string): Promise<PatternExtractionResult[]> {
@@ -170,7 +173,7 @@ export class PatternEngine {
     return patterns;
   }
 
-  async learnFromCodebase(path: string): Promise<Array<{
+  async learnFromCodebase(path: string, progressCallback?: (current: number, total: number, message: string) => void): Promise<Array<{
     id: string;
     type: string;
     content: Record<string, any>;
@@ -180,7 +183,37 @@ export class PatternEngine {
     examples: Array<{ code: string }>;
   }>> {
     try {
-      const patterns = await this.rustLearner.learnFromCodebase(path);
+      if (progressCallback) {
+        progressCallback(1, 100, 'Starting pattern analysis...');
+      }
+      
+      // Create a progress indicator while Rust code runs
+      let progressInterval: NodeJS.Timeout | null = null;
+      let currentProgress = 1;
+      
+      if (progressCallback) {
+        progressInterval = setInterval(() => {
+          // Simulate progress while waiting (max 90%)
+          if (currentProgress < 90) {
+            currentProgress += 2;
+            progressCallback(currentProgress, 100, 'Analyzing code patterns...');
+          }
+        }, 1000); // Update every second
+      }
+      
+      let patterns: any[];
+      try {
+        patterns = await this.rustLearner.learnFromCodebase(path);
+      } finally {
+        // CRITICAL: Clear interval to prevent hanging
+        if (progressInterval !== null) {
+          clearInterval(progressInterval);
+        }
+      }
+      
+      if (progressCallback) {
+        progressCallback(90, 100, `Extracted ${patterns.length} patterns, storing...`);
+      }
       
       const result = patterns.map((p: any) => ({
         id: p.id,
@@ -192,7 +225,10 @@ export class PatternEngine {
         examples: p.examples.map((ex: any) => ({ code: ex.code }))
       }));
 
-      // Store patterns in database
+      // Store patterns in database with progress updates
+      const totalPatterns = result.length;
+      let storedPatterns = 0;
+      
       for (const pattern of result) {
         this.database.insertDeveloperPattern({
           patternId: pattern.id,
@@ -203,6 +239,13 @@ export class PatternEngine {
           examples: pattern.examples,
           confidence: pattern.confidence
         });
+        
+        storedPatterns++;
+        // Report every 5 patterns or at completion
+        if (progressCallback && totalPatterns > 0 && (storedPatterns % 5 === 0 || storedPatterns === totalPatterns)) {
+          const progress = 90 + Math.floor((storedPatterns / totalPatterns) * 10);
+          progressCallback(progress, 100, `Stored ${storedPatterns}/${totalPatterns} patterns`);
+        }
       }
 
       console.log(`✅ Pattern learning completed: ${result.length} patterns discovered`);
@@ -214,6 +257,10 @@ export class PatternEngine {
       console.warn('   • Rust pattern learning engine not accessible');
       console.warn('   • Using simple heuristic-based pattern detection');
       console.warn(`   • Analysis quality significantly reduced for: ${path}`);
+      
+      if (progressCallback) {
+        progressCallback(100, 100, 'Pattern learning failed (degraded mode)');
+      }
       
       // Return empty array but with clear warning that this is a degraded state
       return [];
@@ -254,26 +301,77 @@ export class PatternEngine {
     currentFile?: string,
     selectedCode?: string
   ): Promise<RelevantPattern[]> {
-    try {
-      const patterns = await this.rustLearner.findRelevantPatterns(
-        problemDescription,
-        currentFile || null,
-        selectedCode || null
-      );
+    // console.error(`\n🔍 findRelevantPatterns called`);
+    // console.error(`   problemDescription: "${problemDescription}"`);
+    // console.error(`   currentFile: ${currentFile || 'undefined'}`);
+    // console.error(`   selectedCode: ${selectedCode ? `${selectedCode.length} chars` : 'undefined'}`);
 
-      return patterns.map((p: any) => ({
-        patternId: p.id,
-        patternType: p.patternType,
-        patternContent: { description: p.description },
-        frequency: p.frequency,
-        contexts: p.contexts,
-        examples: p.examples.map((ex: any) => ({ code: ex.code })),
-        confidence: p.confidence
-      }));
-    } catch (error) {
-      console.error('Pattern finding error:', error);
-      return this.fallbackRelevantPatterns(problemDescription);
+    // Get all patterns from database
+    const dbPatterns = this.database.getDeveloperPatterns();
+    // console.error(`   Retrieved ${dbPatterns.length} patterns from database`);
+
+    if (dbPatterns.length === 0) {
+      // console.error(`   ⚠️  No patterns in database, returning empty array`);
+      return [];
     }
+
+    // Extract keywords from problem description
+    const keywords = this.extractKeywords(problemDescription.toLowerCase());
+    // console.error(`   Extracted keywords: ${keywords.join(', ')}`);
+
+    // Score each pattern based on relevance
+    const scoredPatterns = dbPatterns.map(pattern => {
+      let score = 0;
+      const patternContent = JSON.stringify(pattern.patternContent).toLowerCase();
+      const patternType = pattern.patternType.toLowerCase();
+
+      // Match keywords in pattern content and type
+      for (const keyword of keywords) {
+        if (patternType.includes(keyword)) score += 0.3;
+        if (patternContent.includes(keyword)) score += 0.2;
+      }
+
+      // Boost score based on pattern confidence and frequency
+      score += pattern.confidence * 0.3;
+      score += Math.min(pattern.frequency / 10, 1.0) * 0.2;
+
+      return { pattern, score };
+    });
+
+    // Filter patterns with score above threshold and sort by score
+    const relevantPatterns = scoredPatterns
+      .filter(({ score }) => score > 0.3)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10) // Limit to top 10 patterns
+      .map(({ pattern, score }) => {
+        // console.error(`   ✓ Pattern "${pattern.patternType}" scored ${score.toFixed(2)}`);
+
+        return {
+          patternId: pattern.patternId,
+          patternType: pattern.patternType,
+          patternContent: pattern.patternContent,
+          frequency: pattern.frequency,
+          contexts: pattern.contexts,
+          examples: pattern.examples.map(ex => ({ code: ex.code })),
+          confidence: pattern.confidence
+        };
+      });
+
+    // console.error(`   Found ${relevantPatterns.length} relevant patterns\n`);
+    return relevantPatterns;
+  }
+
+  private extractKeywords(text: string): string[] {
+    // Remove common stop words and extract meaningful keywords
+    const stopWords = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could',
+      'to', 'from', 'in', 'on', 'at', 'by', 'for', 'with', 'about', 'as', 'of', 'and', 'or', 'but']);
+
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ') // Remove punctuation
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !stopWords.has(word));
   }
 
   async predictApproach(
@@ -287,7 +385,13 @@ export class PatternEngine {
     complexity: 'low' | 'medium' | 'high';
   }> {
     try {
-      const prediction = await this.rustLearner.predictApproach(problemDescription, context);
+      // Convert context values to strings for Rust binding
+      const stringContext: Record<string, string> = {};
+      for (const [key, value] of Object.entries(context)) {
+        stringContext[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      }
+
+      const prediction = await this.rustLearner.predictApproach(problemDescription, stringContext);
       
       return {
         approach: prediction.approach,
@@ -509,7 +613,7 @@ export class PatternEngine {
   ): boolean {
     // Simple heuristic to check if a pattern is used in content
     if (!pattern.contexts.includes(language)) return false;
-    
+
     // Check for pattern-specific indicators
     switch (pattern.patternType) {
       case 'camelCase_function_naming':
@@ -520,6 +624,362 @@ export class PatternEngine {
         return /describe|it|test|expect/.test(content);
       default:
         return false;
+    }
+  }
+}
+  /**
+   * Build feature map using Rust analyzer with TypeScript fallback
+   * Uses CircuitBreaker pattern for graceful degradation
+   */
+  async buildFeatureMap(projectPath: string): Promise<Array<{
+    id: string;
+    featureName: string;
+    primaryFiles: string[];
+    relatedFiles: string[];
+    dependencies: string[];
+  }>> {
+    // Rust implementation
+    const rustImplementation = async () => {
+      const featureMaps = await BlueprintAnalyzer.buildFeatureMap(projectPath);
+
+      return featureMaps.map((fm: any) => ({
+        id: fm.id,
+        featureName: fm.featureName || fm.feature_name, // Try camelCase first, fallback to snake_case
+        primaryFiles: fm.primaryFiles || fm.primary_files,
+        relatedFiles: fm.relatedFiles || fm.related_files,
+        dependencies: fm.dependencies,
+      }));
+    };
+
+    // TypeScript fallback implementation
+    const fallbackImplementation = async () => {
+      const { access } = await import('fs/promises');
+      const { join, relative, resolve } = await import('path');
+      const { constants } = await import('fs');
+
+      const featureMap: Array<{
+        id: string;
+        featureName: string;
+        primaryFiles: string[];
+        relatedFiles: string[];
+        dependencies: string[];
+      }> = [];
+
+      try {
+        // Validate projectPath
+        const resolvedProject = resolve(projectPath);
+
+        const featurePatterns: Record<string, { patterns: string[]; directories: string[] }> = {
+          'authentication': {
+            patterns: ['**/auth/**', '**/authentication/**', '**/login*', '**/signup*', '**/register*'],
+            directories: ['auth', 'authentication']
+          },
+          'api': {
+            patterns: ['**/api/**', '**/routes/**', '**/endpoints/**', '**/controllers/**'],
+            directories: ['api', 'routes', 'endpoints', 'controllers']
+          },
+          'database': {
+            patterns: ['**/db/**', '**/database/**', '**/models/**', '**/schemas/**', '**/migrations/**'],
+            directories: ['db', 'database', 'models', 'schemas', 'migrations', 'storage']
+          },
+          'ui-components': {
+            patterns: ['**/components/**', '**/ui/**'],
+            directories: ['components', 'ui']
+          },
+          'views': {
+            patterns: ['**/views/**', '**/pages/**', '**/screens/**'],
+            directories: ['views', 'pages', 'screens']
+          },
+          'services': {
+            patterns: ['**/services/**', '**/api-clients/**'],
+            directories: ['services', 'api-clients']
+          },
+          'utilities': {
+            patterns: ['**/utils/**', '**/helpers/**', '**/lib/**'],
+            directories: ['utils', 'helpers', 'lib']
+          },
+          'testing': {
+            patterns: ['**/*.test.*', '**/*.spec.*', '**/tests/**', '**/__tests__/**'],
+            directories: ['tests', '__tests__', 'test']
+          },
+          'configuration': {
+            patterns: ['**/config/**', '**/.config/**', '**/settings/**'],
+            directories: ['config', '.config', 'settings']
+          },
+          'middleware': {
+            patterns: ['**/middleware/**', '**/middlewares/**'],
+            directories: ['middleware', 'middlewares']
+          }
+        };
+
+        for (const [featureName, { directories }] of Object.entries(featurePatterns)) {
+          const primaryFiles: string[] = [];
+          const relatedFiles: string[] = [];
+
+          for (const dir of directories) {
+            const fullPath = join(projectPath, 'src', dir);
+            const altPath = join(projectPath, dir);
+
+            for (const checkPath of [fullPath, altPath]) {
+              const resolved = resolve(checkPath);
+
+              // Path validation
+              if (!resolved.startsWith(resolvedProject)) {
+                continue;
+              }
+
+              try {
+                await access(resolved, constants.F_OK);
+                const files = await this.collectFilesInDirectory(resolved, projectPath, 5);
+
+                if (files.length > 0) {
+                  primaryFiles.push(...files.slice(0, Math.ceil(files.length / 2)));
+                  relatedFiles.push(...files.slice(Math.ceil(files.length / 2)));
+                }
+              } catch {
+                // Directory doesn't exist, skip it
+                continue;
+              }
+            }
+          }
+
+          if (primaryFiles.length > 0) {
+            featureMap.push({
+              id: nanoid(),
+              featureName,
+              primaryFiles: [...new Set(primaryFiles)],
+              relatedFiles: [...new Set(relatedFiles)],
+              dependencies: []
+            });
+          }
+        }
+
+        return featureMap;
+      } catch (error) {
+        console.error('⚠️  Feature mapping error:', error instanceof Error ? error.message : 'Unknown error');
+        console.warn('   Feature map may be incomplete');
+        return [];
+      }
+    };
+
+    // Use CircuitBreaker to try Rust first, fall back to TypeScript
+    return this.rustCircuitBreaker.execute(
+      rustImplementation,
+      fallbackImplementation
+    );
+  }
+
+  /**
+   * Collect files from directory (async with depth limit)
+   * @param dirPath - Directory to collect files from
+   * @param projectPath - Project root path (for relative path calculation)
+   * @param maxDepth - Maximum recursion depth
+   * @param currentDepth - Current depth (for internal recursion tracking)
+   */
+  private async collectFilesInDirectory(
+    dirPath: string,
+    projectPath: string,
+    maxDepth: number = 5,
+    currentDepth: number = 0
+  ): Promise<string[]> {
+    // Prevent infinite recursion
+    if (currentDepth >= maxDepth) {
+      return [];
+    }
+
+    const { readdir } = await import('fs/promises');
+    const { join, relative } = await import('path');
+    const files: string[] = [];
+
+    try {
+      const entries = await readdir(dirPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = join(dirPath, entry.name);
+
+        if (entry.isDirectory()) {
+          if (!['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 'venv'].includes(entry.name)) {
+            const nestedFiles = await this.collectFilesInDirectory(
+              fullPath,
+              projectPath,
+              maxDepth,
+              currentDepth + 1
+            );
+            files.push(...nestedFiles);
+          }
+        } else if (entry.isFile()) {
+          const ext = entry.name.split('.').pop()?.toLowerCase();
+          if (['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'java'].includes(ext || '')) {
+            files.push(relative(projectPath, fullPath));
+          }
+        }
+      }
+    } catch {
+      // Ignore errors for individual directories (permission issues, etc.)
+    }
+
+    return files;
+  }
+
+  /**
+   * Route request to files with confidence scoring
+   * Returns files ranked by relevance with confidence indicators
+   */
+  async routeRequestToFiles(
+    problemDescription: string,
+    projectPath: string
+  ): Promise<{
+    intendedFeature: string;
+    targetFiles: string[];
+    workType: 'feature' | 'bugfix' | 'refactor' | 'test';
+    suggestedStartPoint: string;
+    confidence: number; // 0.0 to 1.0
+    reasoning: string; // Why this routing was chosen
+  } | null> {
+    try {
+      const featureMaps = this.database.getFeatureMaps(projectPath);
+
+      // Debug to stderr (visible in MCP logs)
+      // console.error(`🔍 Debug routeRequestToFiles: projectPath=${projectPath}, featureMaps=${featureMaps.length}`);
+      // if (featureMaps.length > 0) {
+      //   console.error(`🔍 Feature names: ${featureMaps.map(f => f.featureName).join(', ')}`);
+      // }
+
+      if (featureMaps.length === 0) {
+        // console.error('⚠️  No feature maps found - run learning first');
+        return null;
+      }
+
+      const lowerDesc = problemDescription.toLowerCase();
+
+      // Determine work type (affects confidence slightly)
+      let workType: 'feature' | 'bugfix' | 'refactor' | 'test' = 'feature';
+      if (lowerDesc.includes('fix') || lowerDesc.includes('bug') || lowerDesc.includes('error')) {
+        workType = 'bugfix';
+      } else if (lowerDesc.includes('refactor') || lowerDesc.includes('improve') || lowerDesc.includes('optimize')) {
+        workType = 'refactor';
+      } else if (lowerDesc.includes('test') || lowerDesc.includes('spec')) {
+        workType = 'test';
+      }
+
+      // Keyword matching with scoring
+      const keywordGroups: Record<string, string[]> = {
+        'authentication': ['auth', 'login', 'signup', 'register', 'password', 'session'],
+        'api': ['api', 'endpoint', 'route', 'controller', 'rest', 'graphql'],
+        'database': ['database', 'db', 'model', 'schema', 'migration', 'query', 'sql'],
+        'ui-components': ['component', 'ui', 'button', 'form', 'input', 'widget'],
+        'views': ['view', 'page', 'screen', 'template', 'layout'],
+        'services': ['service', 'client', 'provider', 'manager'],
+        'utilities': ['util', 'helper', 'function', 'library'],
+        'testing': ['test', 'spec', 'mock', 'fixture', 'assertion'],
+        'configuration': ['config', 'setting', 'environment', 'variable'],
+        'middleware': ['middleware', 'interceptor', 'guard', 'filter']
+      };
+
+      // Calculate match scores for each feature
+      const featureScores: Array<{ feature: typeof featureMaps[0]; score: number; matchedKeywords: string[] }> = [];
+
+      for (const feature of featureMaps) {
+        const featureKeywords = keywordGroups[feature.featureName] || [];
+        const matchedKeywords: string[] = [];
+        let score = 0;
+
+        for (const keyword of featureKeywords) {
+          if (lowerDesc.includes(keyword)) {
+            matchedKeywords.push(keyword);
+            // Weight longer keywords more heavily
+            score += keyword.length / 10;
+          }
+        }
+
+        // Also check direct feature name match
+        if (lowerDesc.includes(feature.featureName.replace('-', ' '))) {
+          score += 1.0; // Strong boost for direct name match
+          matchedKeywords.push(feature.featureName);
+        }
+
+        if (score > 0) {
+          featureScores.push({ feature, score, matchedKeywords });
+        }
+      }
+
+      // Sort by score (highest first)
+      featureScores.sort((a, b) => b.score - a.score);
+
+      if (featureScores.length > 0) {
+        const best = featureScores[0];
+        const allFiles = [...best.feature.primaryFiles, ...best.feature.relatedFiles];
+
+        // Calculate confidence based on:
+        // 1. Match score strength (0-1)
+        // 2. Number of matched keywords (more = higher confidence)
+        // 3. File count (more files = lower confidence per file)
+        const maxPossibleScore = 3.0; // Tuned based on typical keyword counts
+        const scoreConfidence = Math.min(best.score / maxPossibleScore, 1.0);
+        const keywordBoost = Math.min(best.matchedKeywords.length * 0.15, 0.3);
+        const fileCountPenalty = allFiles.length > 20 ? 0.1 : 0; // Penalize very large features
+
+        const confidence = Math.min(Math.max(scoreConfidence + keywordBoost - fileCountPenalty, 0.3), 0.95);
+
+        return {
+          intendedFeature: best.feature.featureName,
+          targetFiles: allFiles.slice(0, 5),
+          workType,
+          suggestedStartPoint: best.feature.primaryFiles[0] || allFiles[0],
+          confidence,
+          reasoning: `Matched keywords: ${best.matchedKeywords.join(', ')}. Found ${allFiles.length} relevant files.`
+        };
+      }
+
+      // Fallback: return first feature with low confidence
+      if (featureMaps.length > 0) {
+        const firstFeature = featureMaps[0];
+        const allFiles = [...firstFeature.primaryFiles, ...firstFeature.relatedFiles];
+
+        return {
+          intendedFeature: firstFeature.featureName,
+          targetFiles: allFiles.slice(0, 5),
+          workType,
+          suggestedStartPoint: firstFeature.primaryFiles[0],
+          confidence: 0.2, // Low confidence for fallback
+          reasoning: 'No keyword matches found. Suggesting most common feature as fallback.'
+        };
+      }
+
+      console.warn('⚠️  Could not route request - no features available');
+      return null;
+    } catch (error) {
+      console.error('⚠️  Request routing error:', error instanceof Error ? error.message : 'Unknown error');
+      console.warn('   Routing failed. Check if feature maps exist.');
+      return null;
+    }
+  }
+
+  async findFilesUsingPatterns(
+    patterns: RelevantPattern[],
+    projectPath: string
+  ): Promise<string[]> {
+    const files: string[] = [];
+
+    try {
+      const allFileIntel = this.database.getFeatureMaps(projectPath);
+
+      for (const feature of allFileIntel) {
+        for (const pattern of patterns) {
+          const patternType = pattern.patternType.toLowerCase();
+
+          if (feature.featureName.includes('test') && patternType.includes('test')) {
+            files.push(...feature.primaryFiles);
+          } else if (feature.featureName.includes('api') && patternType.includes('api')) {
+            files.push(...feature.primaryFiles);
+          }
+        }
+      }
+
+      return [...new Set(files)].slice(0, 10);
+    } catch (error) {
+      console.error('Error finding files using patterns:', error);
+      return [];
     }
   }
 }

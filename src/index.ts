@@ -13,6 +13,7 @@ import { SemanticVectorDB } from './storage/vector-db.js';
 import { InteractiveSetup } from './cli/interactive-setup.js';
 import { DebugTools } from './cli/debug-tools.js';
 import { config } from './config/config.js';
+import { Logger } from './utils/logger.js';
 
 function getVersion(): string {
   try {
@@ -48,8 +49,32 @@ async function main() {
     case '-v':
       showVersion();
       break;
+
     case 'server':
-      console.log('Starting In Memoria MCP Server...');
+      // Set MCP server mode BEFORE any logging
+      process.env.MCP_SERVER = 'true';
+
+      // Accept optional path argument to set working directory
+      // If no path provided, server runs globally and tools receive project paths
+      const serverPath = args[1];
+
+      if (serverPath) {
+        const { resolve } = await import('path');
+        const { existsSync } = await import('fs');
+        const resolvedPath = resolve(serverPath);
+
+        if (!existsSync(resolvedPath)) {
+          console.error(`❌ Error: Path does not exist: ${resolvedPath}`);
+          console.error(`   Tried: ${serverPath}`);
+          console.error('   Please provide a valid project directory path as argument.');
+          process.exit(1);
+        }
+
+        Logger.info(`📂 Working directory: ${resolvedPath}`);
+        process.chdir(resolvedPath);
+      }
+
+      Logger.info(`🚀 Starting In Memoria MCP Server`);
       await runServer();
       break;
 
@@ -158,39 +183,62 @@ async function startWatcher(path: string): Promise<void> {
 }
 
 async function learnCodebase(path: string): Promise<void> {
-  console.log(`Learning from codebase: ${path}`);
-
-  const database = new SQLiteDatabase(config.getDatabasePath(path));
-  const vectorDB = new SemanticVectorDB(process.env.OPENAI_API_KEY);
-  const semanticEngine = new SemanticEngine(database, vectorDB);
-  const patternEngine = new PatternEngine(database);
+  console.log(`🧠 Starting intelligent learning from: ${path}\n`);
 
   try {
-    console.log('Extracting semantic concepts...');
-    const concepts = await semanticEngine.learnFromCodebase(path);
-    console.log(`Learned ${concepts.length} semantic concepts`);
+    // Estimate file count for summary
+    const glob = (await import('glob')).glob;
+    const files = await glob('**/*.{ts,tsx,js,jsx,py,rs,go,java,c,cpp,svelte,vue}', {
+      cwd: path,
+      ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**'],
+      nodir: true
+    });
+    const fileCount = files.length;
 
-    console.log('Learning coding patterns...');
-    const patterns = await patternEngine.learnFromCodebase(path);
-    console.log(`Learned ${patterns.length} coding patterns`);
+    // Use shared learning service
+    const { LearningService } = await import('./services/learning-service.js');
+    const force = process.argv.includes('--force');
 
-    console.log('Learning complete! Intelligence stored for future sessions.');
-  } catch (error) {
-    console.error(`Learning failed: ${error}`);
-  } finally {
-    // Clean up all resources to prevent hanging
-    try {
-      await vectorDB.close();
-    } catch (error) {
-      console.warn('Warning: Failed to close vector database:', error);
+    // Simple milestone-based progress tracking
+    let lastLoggedPercent = -1;
+    const result = await LearningService.learnFromCodebase(path, {
+      force,
+      progressCallback: (current: number, total: number, message: string) => {
+        // Log at 0%, 25%, 50%, 75%, 100% milestones only
+        const percent = Math.floor((current / total) * 100);
+        const milestone = Math.floor(percent / 25) * 25;
+
+        if (milestone !== lastLoggedPercent && (milestone === 0 || milestone === 25 || milestone === 50 || milestone === 75 || milestone === 100)) {
+          console.log(`   ${milestone}% - ${message}`);
+          lastLoggedPercent = milestone;
+        }
+      }
+    });
+
+    // Print insights (including any errors)
+    if (result.insights && result.insights.length > 0) {
+      console.log('\n📝 Learning Details:');
+      result.insights.forEach(insight => console.log(insight));
+      console.log('');
     }
 
-    // Clean up semantic engine resources
-    semanticEngine.cleanup();
+    // Check if learning failed
+    if (!result.success) {
+      console.error('❌ Learning failed - see details above');
+      process.exit(1);
+    }
 
-    database.close();
-    // console.debug("database closed");
-
+    // Print summary
+    const separator = '━'.repeat(60);
+    console.log(`${separator}`);
+    console.log(`📊 Concepts:  ${result.conceptsLearned}`);
+    console.log(`🔍 Patterns:  ${result.patternsLearned}`);
+    console.log(`🗺️  Features:  ${result.featuresLearned}`);
+    console.log(`📁 Files:     ${fileCount}`);
+    console.log(`${separator}\n`);
+  } catch (error) {
+    console.error(`❌ Learning failed: ${error}`);
+  } finally {
     // Force process exit to ensure cleanup of any remaining resources
     process.exit(0);
   }
@@ -286,7 +334,7 @@ async function initializeProject(path: string): Promise<void> {
 
   // Create default configuration
   const defaultConfig = {
-    version: "0.4.6",
+    version: "0.5.6",
     intelligence: {
       enableRealTimeAnalysis: true,
       enablePatternLearning: true,

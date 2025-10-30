@@ -252,6 +252,163 @@ export class DatabaseMigrator {
         SELECT 'WARNING: Rolling back timezone fix may cause data issues' as warning;
       `
     });
+
+    this.migrations.push({
+      version: 5,
+      name: 'add_project_blueprint_tables',
+      up: `
+        -- Feature to file mapping
+        CREATE TABLE IF NOT EXISTS feature_map (
+          id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL,
+          feature_name TEXT NOT NULL,
+          primary_files TEXT NOT NULL,
+          related_files TEXT,
+          dependencies TEXT,
+          status TEXT DEFAULT 'active',
+          created_at DATETIME DEFAULT (datetime('now', 'utc')),
+          updated_at DATETIME DEFAULT (datetime('now', 'utc')),
+          FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+        );
+
+        -- Entry points mapping
+        CREATE TABLE IF NOT EXISTS entry_points (
+          id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL,
+          entry_type TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          description TEXT,
+          framework TEXT,
+          created_at DATETIME DEFAULT (datetime('now', 'utc')),
+          FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+        );
+
+        -- Key directories mapping
+        CREATE TABLE IF NOT EXISTS key_directories (
+          id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL,
+          directory_path TEXT NOT NULL,
+          directory_type TEXT NOT NULL,
+          file_count INTEGER DEFAULT 0,
+          description TEXT,
+          created_at DATETIME DEFAULT (datetime('now', 'utc')),
+          FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+        );
+
+        -- Indexes for blueprint tables
+        CREATE INDEX IF NOT EXISTS idx_feature_map_project ON feature_map(project_path);
+        CREATE INDEX IF NOT EXISTS idx_feature_map_name ON feature_map(feature_name);
+        CREATE INDEX IF NOT EXISTS idx_entry_points_project ON entry_points(project_path);
+        CREATE INDEX IF NOT EXISTS idx_key_directories_project ON key_directories(project_path);
+      `,
+      down: `
+        DROP TABLE IF EXISTS feature_map;
+        DROP TABLE IF EXISTS entry_points;
+        DROP TABLE IF EXISTS key_directories;
+        DROP INDEX IF EXISTS idx_feature_map_project;
+        DROP INDEX IF EXISTS idx_feature_map_name;
+        DROP INDEX IF EXISTS idx_entry_points_project;
+        DROP INDEX IF EXISTS idx_key_directories_project;
+      `
+    });
+
+    this.migrations.push({
+      version: 6,
+      name: 'add_work_session_tracking',
+      up: `
+        -- Work sessions tracking
+        CREATE TABLE IF NOT EXISTS work_sessions (
+          id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL,
+          session_start DATETIME DEFAULT (datetime('now', 'utc')),
+          session_end DATETIME,
+          last_feature TEXT,
+          current_files TEXT,
+          completed_tasks TEXT,
+          pending_tasks TEXT,
+          blockers TEXT,
+          session_notes TEXT,
+          last_updated DATETIME DEFAULT (datetime('now', 'utc')),
+          FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+        );
+
+        -- Project decisions tracking
+        CREATE TABLE IF NOT EXISTS project_decisions (
+          id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL,
+          decision_key TEXT NOT NULL,
+          decision_value TEXT NOT NULL,
+          reasoning TEXT,
+          made_at DATETIME DEFAULT (datetime('now', 'utc')),
+          UNIQUE(project_path, decision_key),
+          FOREIGN KEY (project_path) REFERENCES project_metadata(project_path)
+        );
+
+        -- Indexes for session tables
+        CREATE INDEX IF NOT EXISTS idx_work_sessions_project ON work_sessions(project_path);
+        CREATE INDEX IF NOT EXISTS idx_work_sessions_updated ON work_sessions(last_updated DESC);
+        CREATE INDEX IF NOT EXISTS idx_project_decisions_key ON project_decisions(project_path, decision_key);
+      `,
+      down: `
+        DROP TABLE IF EXISTS work_sessions;
+        DROP TABLE IF EXISTS project_decisions;
+        DROP INDEX IF EXISTS idx_work_sessions_project;
+        DROP INDEX IF EXISTS idx_work_sessions_updated;
+        DROP INDEX IF EXISTS idx_project_decisions_key;
+      `
+    });
+
+    // Migration 7: Add UNIQUE constraint to project_metadata.project_path for foreign keys
+    this.migrations.push({
+      version: 7,
+      name: 'add_unique_constraint_to_project_path',
+      up: `
+        -- SQLite doesn't support ADD CONSTRAINT, so we need to recreate the table
+        CREATE TABLE project_metadata_new (
+          project_id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL UNIQUE,
+          project_name TEXT,
+          language_primary TEXT,
+          languages_detected TEXT,
+          framework_detected TEXT,
+          intelligence_version TEXT,
+          last_full_scan DATETIME,
+          created_at DATETIME DEFAULT (datetime('now', 'utc')),
+          updated_at DATETIME DEFAULT (datetime('now', 'utc'))
+        );
+
+        -- Copy existing data
+        INSERT INTO project_metadata_new
+        SELECT * FROM project_metadata;
+
+        -- Drop old table
+        DROP TABLE project_metadata;
+
+        -- Rename new table
+        ALTER TABLE project_metadata_new RENAME TO project_metadata;
+      `,
+      down: `
+        -- Reverse migration: remove UNIQUE constraint
+        CREATE TABLE project_metadata_old (
+          project_id TEXT PRIMARY KEY,
+          project_path TEXT NOT NULL,
+          project_name TEXT,
+          language_primary TEXT,
+          languages_detected TEXT,
+          framework_detected TEXT,
+          intelligence_version TEXT,
+          last_full_scan DATETIME,
+          created_at DATETIME DEFAULT (datetime('now', 'utc')),
+          updated_at DATETIME DEFAULT (datetime('now', 'utc'))
+        );
+
+        INSERT INTO project_metadata_old
+        SELECT * FROM project_metadata;
+
+        DROP TABLE project_metadata;
+        ALTER TABLE project_metadata_old RENAME TO project_metadata;
+      `
+    });
   }
 
   private loadMigrationFile(filename: string): string {
@@ -341,6 +498,14 @@ export class DatabaseMigrator {
         case 4: // Timezone handling
           this.validateTimezoneColumns();
           break;
+        case 5: // Project blueprint tables
+          this.validateTableExists(['feature_map', 'entry_points', 'key_directories']);
+          this.validateIndexExists(['idx_feature_map_project', 'idx_entry_points_project', 'idx_key_directories_project']);
+          break;
+        case 6: // Work session tracking
+          this.validateTableExists(['work_sessions', 'project_decisions']);
+          this.validateIndexExists(['idx_work_sessions_project', 'idx_work_sessions_updated', 'idx_project_decisions_key']);
+          break;
         default:
           // Generic validation - check migration was recorded
           break;
@@ -359,7 +524,9 @@ export class DatabaseMigrator {
       const requiredTables = [
         'semantic_concepts', 'developer_patterns', 'file_intelligence',
         'architectural_decisions', 'shared_patterns', 'ai_insights',
-        'project_metadata', 'migrations'
+        'project_metadata', 'migrations',
+        'feature_map', 'entry_points', 'key_directories',
+        'work_sessions', 'project_decisions'
       ];
 
       for (const table of requiredTables) {
@@ -473,16 +640,16 @@ export class DatabaseMigrator {
       for (const migration of migrationsToRollback) {
         if (migration.down) {
           console.log(`Rolling back migration ${migration.version}: ${migration.name}`);
-          
+
           try {
             // Execute the rollback
             this.db.exec(migration.down);
-            
+
             // Remove migration record
             this.db.prepare(`
               DELETE FROM migrations WHERE version = ?
             `).run(migration.version);
-            
+
             console.log(`✅ Migration ${migration.version} rolled back successfully`);
           } catch (error) {
             console.error(`❌ Rollback ${migration.version} failed:`, error);
@@ -490,6 +657,14 @@ export class DatabaseMigrator {
           }
         } else {
           console.warn(`⚠️ Migration ${migration.version} has no rollback script`);
+          // When rolling back to version 0, we still need to delete the migration record
+          // to maintain consistency, even though we can't undo the schema changes
+          if (targetVersion === 0) {
+            this.db.prepare(`
+              DELETE FROM migrations WHERE version = ?
+            `).run(migration.version);
+            console.log(`✅ Migration ${migration.version} record removed (no rollback script available)`);
+          }
         }
       }
     })();

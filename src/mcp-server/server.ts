@@ -17,6 +17,7 @@ import { SQLiteDatabase } from '../storage/sqlite-db.js';
 import { SemanticVectorDB } from '../storage/vector-db.js';
 import { validateInput, VALIDATION_SCHEMAS } from './validation.js';
 import { config } from '../config/config.js';
+import { Logger } from '../utils/logger.js';
 
 export class CodeCartographerMCP {
   private server: Server;
@@ -33,7 +34,7 @@ export class CodeCartographerMCP {
     this.server = new Server(
       {
         name: 'in-memoria',
-        version: '0.4.6',
+        version: '0.5.6',
       },
       {
         capabilities: {
@@ -47,30 +48,30 @@ export class CodeCartographerMCP {
 
   private async initializeComponents(): Promise<void> {
     try {
-      console.error('Initializing In Memoria components...');
+      Logger.info('Initializing In Memoria components...');
 
       // Initialize storage using configuration management
       // Database path is determined by config based on the analyzed project
       const appConfig = config.getConfig();
       const dbPath = config.getDatabasePath(); // Will use current directory as project path
-      console.error(`Attempting to initialize database at: ${dbPath}`);
+      Logger.info(`Attempting to initialize database at: ${dbPath}`);
 
       try {
         this.database = new SQLiteDatabase(dbPath);
-        console.error('SQLite database initialized successfully');
+        Logger.info('SQLite database initialized successfully');
       } catch (dbError: unknown) {
-        console.error('Failed to initialize SQLite database:', dbError);
-        console.error('The MCP server will continue with limited functionality');
+        Logger.error('Failed to initialize SQLite database:', dbError);
+        Logger.error('The MCP server will continue with limited functionality');
         throw new Error(`Database initialization failed: ${dbError instanceof Error ? dbError.message : String(dbError)}`);
       }
 
       this.vectorDB = new SemanticVectorDB(process.env.OPENAI_API_KEY);
-      console.error('Vector database initialized');
+      Logger.info('Vector database initialized');
 
       // Initialize engines
       this.semanticEngine = new SemanticEngine(this.database, this.vectorDB);
       this.patternEngine = new PatternEngine(this.database);
-      console.error('Analysis engines initialized');
+      Logger.info('Analysis engines initialized');
 
       // Initialize tool collections
       this.coreTools = new CoreAnalysisTools(this.semanticEngine, this.patternEngine, this.database);
@@ -90,12 +91,12 @@ export class CodeCartographerMCP {
         this.patternEngine,
         this.database
       );
-      console.error('Tool collections initialized');
+      Logger.info('Tool collections initialized');
 
-      console.error('In Memoria components initialized successfully');
+      Logger.info('In Memoria components initialized successfully');
     } catch (error: unknown) {
-      console.error('Failed to initialize In Memoria components:', error);
-      console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
+      Logger.error('Failed to initialize In Memoria components:', error);
+      Logger.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
       throw error;
     }
   }
@@ -154,17 +155,20 @@ export class CodeCartographerMCP {
       case 'analyze_codebase':
         return await this.coreTools.analyzeCodebase(args);
 
-      case 'get_file_content':
-        return await this.coreTools.getFileContent(args);
+      // DEPRECATED (Phase 4): Merged into analyze_codebase - now handles both files and directories
+      // case 'get_file_content':
+      //   return await this.coreTools.getFileContent(args);
 
-      case 'get_project_structure':
-        return await this.coreTools.getProjectStructure(args);
+      // DEPRECATED (Phase 4): Merged into get_project_blueprint
+      // case 'get_project_structure':
+      //   return await this.coreTools.getProjectStructure(args);
 
       case 'search_codebase':
         return await this.coreTools.searchCodebase(args);
 
-      case 'generate_documentation':
-        return await this.coreTools.generateDocumentation(args);
+      // DEPRECATED (Phase 4): Not agent-facing, removed from tool list
+      // case 'generate_documentation':
+      //   return await this.coreTools.generateDocumentation(args);
 
       // Intelligence Tools
       case 'learn_codebase_intelligence':
@@ -185,15 +189,20 @@ export class CodeCartographerMCP {
       case 'contribute_insights':
         return await this.intelligenceTools.contributeInsights(args);
 
+      case 'get_project_blueprint':
+        return await this.intelligenceTools.getProjectBlueprint(args);
+
       // Automation Tools
       case 'auto_learn_if_needed':
         return await this.automationTools.autoLearnIfNeeded(args);
 
-      case 'get_learning_status':
-        return await this.automationTools.getLearningStatus(args);
+      // DEPRECATED (Phase 4): Merged into get_project_blueprint - returns learning status in blueprint
+      // case 'get_learning_status':
+      //   return await this.automationTools.getLearningStatus(args);
 
-      case 'quick_setup':
-        return await this.automationTools.quickSetup(args);
+      // DEPRECATED (Phase 4): Merged into auto_learn_if_needed - same functionality
+      // case 'quick_setup':
+      //   return await this.automationTools.quickSetup(args);
 
       // Monitoring Tools
       case 'get_system_status':
@@ -204,6 +213,9 @@ export class CodeCartographerMCP {
 
       case 'get_performance_status':
         return await this.monitoringTools.getPerformanceStatus(args);
+
+      case 'health_check':
+        return await this.monitoringTools.healthCheck(args);
 
       default:
         throw new McpError(
@@ -222,7 +234,19 @@ export class CodeCartographerMCP {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
 
-    console.error('In Memoria MCP Server started');
+    Logger.info('In Memoria MCP Server started');
+  }
+
+  /**
+   * Get all registered tools (for testing and introspection)
+   */
+  getAllTools(): any[] {
+    return [
+      ...this.coreTools.tools,
+      ...this.intelligenceTools.tools,
+      ...this.automationTools.tools,
+      ...this.monitoringTools.tools
+    ];
   }
 
   /**

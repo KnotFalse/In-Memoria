@@ -31,45 +31,17 @@ export class CoreAnalysisTools {
     return [
       {
         name: 'analyze_codebase',
-        description: 'Perform comprehensive analysis of a codebase including semantic concepts, patterns, and complexity metrics',
+        description: 'One-time analysis of a specific file or directory. Returns AST structure, complexity metrics, and detected patterns for that path only. For project-wide understanding, use get_project_blueprint instead (faster, uses learned intelligence). Use this for deep-dive analysis of a specific file you\'re currently working on.',
         inputSchema: {
           type: 'object',
           properties: {
             path: {
               type: 'string',
-              description: 'Path to the codebase directory to analyze'
-            }
-          },
-          required: ['path']
-        }
-      },
-      {
-        name: 'get_file_content',
-        description: 'Retrieve the content of a specific file with metadata',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: 'Path to the file to read'
-            }
-          },
-          required: ['path']
-        }
-      },
-      {
-        name: 'get_project_structure',
-        description: 'Get the hierarchical structure of a project directory',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: 'Path to the project directory'
+              description: 'Path to specific file or directory to analyze in detail'
             },
-            maxDepth: {
-              type: 'number',
-              description: 'Maximum depth to traverse (default: 5)'
+            includeFileContent: {
+              type: 'boolean',
+              description: 'If true and path is a file, include full file content in response (default: false)'
             }
           },
           required: ['path']
@@ -77,22 +49,22 @@ export class CoreAnalysisTools {
       },
       {
         name: 'search_codebase',
-        description: 'Search the codebase using semantic, text, or pattern-based queries',
+        description: 'Search for code by text matching or patterns. Use "text" type for finding specific strings/keywords in code. Use "pattern" type for regex/AST patterns. Note: For "where should I work?" or "what files to modify?" questions, use predict_coding_approach instead - it provides intelligent file routing without exploration.',
         inputSchema: {
           type: 'object',
           properties: {
             query: {
               type: 'string',
-              description: 'Search query string'
+              description: 'Search query - literal text string or regex pattern depending on type'
             },
             type: {
               type: 'string',
               enum: ['semantic', 'text', 'pattern'],
-              description: 'Type of search to perform'
+              description: 'Type of search: "text" for literal string matching, "pattern" for regex/AST patterns, "semantic" for concept-based search'
             },
             language: {
               type: 'string',
-              description: 'Filter by programming language'
+              description: 'Filter results by programming language (e.g., "typescript", "rust", "python")'
             },
             limit: {
               type: 'number',
@@ -103,42 +75,43 @@ export class CoreAnalysisTools {
           },
           required: ['query']
         }
-      },
-      {
-        name: 'generate_documentation',
-        description: 'Generate intelligent documentation for the codebase',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: 'Path to the codebase'
-            },
-            format: {
-              type: 'string',
-              enum: ['markdown', 'html', 'json'],
-              description: 'Output format for documentation'
-            },
-            includeExamples: {
-              type: 'boolean',
-              description: 'Include code examples in documentation'
-            },
-            includeArchitecture: {
-              type: 'boolean',
-              description: 'Include architectural analysis'
-            },
-            outputPath: {
-              type: 'string',
-              description: 'Optional path to save generated documentation'
-            }
-          },
-          required: ['path']
-        }
       }
+      // DEPRECATED (Phase 4): Not agent-facing, removed from tool list
+      // {
+      //   name: 'generate_documentation',
+      //   description: 'Generate intelligent documentation for the codebase',
+      //   inputSchema: {
+      //     type: 'object',
+      //     properties: {
+      //       path: {
+      //         type: 'string',
+      //         description: 'Path to the codebase'
+      //       },
+      //       format: {
+      //         type: 'string',
+      //         enum: ['markdown', 'html', 'json'],
+      //         description: 'Output format for documentation'
+      //       },
+      //       includeExamples: {
+      //         type: 'boolean',
+      //         description: 'Include code examples in documentation'
+      //       },
+      //       includeArchitecture: {
+      //         type: 'boolean',
+      //         description: 'Include architectural analysis'
+      //       },
+      //       outputPath: {
+      //         type: 'string',
+      //         description: 'Optional path to save generated documentation'
+      //       }
+      //     },
+      //     required: ['path']
+      //   }
+      // }
     ];
   }
 
-  async analyzeCodebase(args: { path: string }): Promise<CodebaseAnalysis> {
+  async analyzeCodebase(args: { path: string }): Promise<any> {
     // Input validation
     if (!args.path || typeof args.path !== 'string') {
       throw new Error('Path parameter is required and must be a string');
@@ -149,45 +122,88 @@ export class CoreAnalysisTools {
     if (sanitizedPath !== args.path) {
       throw new Error('Path contains invalid characters');
     }
-    
+
     try {
-      // Perform comprehensive semantic analysis
-      const analysis = await this.semanticEngine.analyzeCodebase(args.path);
+      // Check if path is a file or directory
+      const stats = statSync(args.path);
 
-      // Extract and learn patterns
-      const patterns = await this.patternEngine.extractPatterns(args.path);
+      if (stats.isFile()) {
+        // FILE ANALYSIS - Token-efficient response focused on concepts
+        const content = readFileSync(args.path, 'utf-8');
+        const language = this.detectLanguage(args.path);
+        const lineCount = content.split('\n').length;
 
-      // Enhance with additional insights
-      const enhancedAnalysis = {
-        path: args.path,
-        languages: analysis.languages,
-        frameworks: analysis.frameworks,
-        complexity: analysis.complexity,
-        concepts: analysis.concepts.map(concept => ({
-          name: concept.name,
-          type: concept.type,
-          confidence: concept.confidence
-        })),
-        patterns: patterns.map(p => ({
-          type: p.type,
-          description: p.description,
-          frequency: p.frequency
-        })),
-        // Note: Enhanced insights would be available through separate tools
-      };
+        // Perform semantic analysis
+        const semanticConcepts = await this.semanticEngine.analyzeFileContent(args.path, content);
+        const patterns = await this.patternEngine.analyzeFilePatterns(args.path, content);
+        const complexity = this.calculateDetailedComplexity(content, semanticConcepts);
 
-      return enhancedAnalysis;
+        return {
+          type: 'file',
+          path: args.path,
+          language,
+          lineCount,
+          size: stats.size,
+          // Token-efficient: Top 10 concepts only
+          concepts: semanticConcepts.slice(0, 10).map((c: any) => ({
+            name: c.name,
+            type: c.type,
+            confidence: c.confidence,
+            line: c.lineRange?.start || 0
+          })),
+          // Token-efficient: Top 5 patterns
+          patterns: patterns.slice(0, 5).map((p: any) => ({
+            type: p.type,
+            description: p.description,
+            frequency: p.frequency || 1
+          })),
+          complexity: {
+            cyclomatic: complexity.cyclomatic,
+            cognitive: complexity.cognitive,
+            lines: lineCount
+          },
+          note: 'For full file content, use a file reading tool. For all concepts, use get_semantic_insights.'
+        };
+      } else {
+        // DIRECTORY ANALYSIS - Token-efficient codebase summary
+        const analysis = await this.semanticEngine.analyzeCodebase(args.path);
+        const patterns = await this.patternEngine.extractPatterns(args.path);
+
+        return {
+          path: args.path,
+          type: 'codebase',
+          languages: analysis.languages,
+          frameworks: analysis.frameworks,
+          complexity: analysis.complexity,
+          // Token-efficient: Top 15 concepts only
+          topConcepts: analysis.concepts.slice(0, 15).map((concept: any) => ({
+            name: concept.name,
+            type: concept.type,
+            confidence: concept.confidence
+          })),
+          // Token-efficient: Top 10 patterns only
+          topPatterns: patterns.slice(0, 10).map((p: any) => ({
+            type: p.type,
+            description: p.description,
+            frequency: p.frequency
+          })),
+          summary: {
+            totalConcepts: analysis.concepts.length,
+            totalPatterns: patterns.length,
+            note: 'Use get_semantic_insights to explore all concepts. Use get_project_blueprint for structure.'
+          }
+        };
+      }
     } catch (error) {
-      console.error('Codebase analysis error:', error);
-      // Return minimal analysis on error
+      console.error('Analysis error:', error);
       return {
         path: args.path,
-        languages: ['unknown'],
+        languages: [],
         frameworks: [],
-        complexity: { cyclomatic: 1, cognitive: 1, lines: 0 },
+        complexity: { cyclomatic: 0, cognitive: 0, lines: 0 },
         concepts: [],
         patterns: [],
-        // Note: Enhanced insights would be available through separate tools
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }

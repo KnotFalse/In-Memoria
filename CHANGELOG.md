@@ -5,9 +5,211 @@ All notable changes to In Memoria will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.5.6] - 2025-10-30
+
+### 🐛 **Fixed**
+
+- **Feature map file routing** - Fixed file routing functionality in `predict_coding_approach` MCP tool
+  - Fixed NAPI field name conversion: Rust `feature_name` now correctly maps to JavaScript `featureName` (camelCase)
+  - Fixed path matching: Database queries now handle both absolute paths and relative "." paths correctly
+  - Fixed ES module import: Replaced `require('path')` with proper ES6 import in `sqlite-db.ts`
+  - Added Migration v7: Added UNIQUE constraint to `project_metadata.project_path` for foreign key support
+  - Worked around Claude Code MCP client bug where optional boolean parameters aren't passed by defaulting `includeFileRouting` to `true`
+- **Project blueprint tool** - Fixed `get_project_blueprint` returning empty data
+  - Fixed NAPI field name conversion in `detectEntryPoints` and `mapKeyDirectories` (semantic-engine.ts)
+  - Fixed path normalization in database queries to handle both absolute and relative paths (sqlite-db.ts)
+- **Pattern recommendations** - Fixed `get_pattern_recommendations` returning empty results
+  - Replaced Rust in-memory HashMap approach with database-backed implementation (pattern-engine.ts)
+  - Added keyword extraction and intelligent scoring algorithm (matches pattern type/content, confidence, frequency)
+  - Now returns top 10 relevant patterns based on problem description
+- **Feature mapping coverage** - Enhanced feature maps to include Rust code and language-specific patterns
+  - Added 4 new feature categories: language-support, rust-core, mcp-server, cli (blueprint.rs)
+  - Added nested directory search for mono-repo structures (checks rust-core/src/* paths)
+  - Feature maps now cover both TypeScript and Rust code
+
+### ✨ **Added**
+
+- **Test infrastructure** - Formalized and consolidated testing (Issue #1)
+  - Added Vitest configuration with coverage reporting
+  - Created test utilities and helpers (`test-utils.ts`, `mock-data.ts`, `test-reporter.ts`)
+  - Enhanced test runner with filtering support (integration/manual)
+  - Added GitHub Actions workflow for manual test triggers
+  - Created comprehensive testing documentation (`TESTING.md`)
+  - Clear separation: `src/__tests__/` (unit tests) vs `tests/` (integration/manual)
+- **Simplified progress tracking** - Replaced fancy progress bars with milestone-based logging (0%, 25%, 50%, 75%, 100%)
+  - Eliminates log pollution when output is piped or observed by AI agents
+  - Progress bars were causing 1000+ line output when piped due to ANSI escape codes
+  - New approach logs only at key milestones for cleaner, more reliable progress tracking
+- **Project metadata management** - Added `insertProjectMetadata()` and `getProjectMetadata()` methods to `sqlite-db.ts`
+  - Ensures project metadata exists before creating feature maps (required for foreign key constraints)
+  - Phase 6.5 in learning pipeline now creates project metadata automatically
+
+### 🎯 **Improved**
+
+- **MCP tool descriptions** - Enhanced all tool descriptions with explicit trigger phrases and usage guidance to help Claude automatically select the right tools for each task
+
+### 📝 **Documentation**
+
+- Updated `predict_coding_approach` tool description to clarify `includeFileRouting` defaults to `true`
+- Added `TESTING.md` with clear explanation of test structure and usage
+- Simplified `tests/README.md` to focus on essentials
+
+## [0.5.5] - 2025-10-27
+
+### 🐛 **Fixed**
+
+- **MCP STDIO transport** - Fixed JSON parse errors in MCP Inspector
+  - Logs now go to stderr instead of stdout (per MCP spec)
+  - Stdout is reserved for JSON-RPC messages only
+  - All logging is still visible and AI agents can see progress updates
+
+### ✨ **Added**
+
+- **Database auto-initialization** - Parent directories are created automatically
+- **Path validation** - Helpful warnings when database paths look suspicious
+- **Server path argument** - `in-memoria server /path/to/project` now sets working directory
+- **PathValidator utility** - Reusable path validation with project detection
+- **health_check tool** - New diagnostic tool for troubleshooting MCP setup issues
+- **Better Copilot instructions** - Clear guidance on path parameter usage and tool examples
+
+### 📝 **Documentation**
+
+- **Issue #9 analysis** - Comprehensive root cause analysis in `docs/ISSUE_9_ANALYSIS.md`
+  - Detailed breakdown of all 4 reported issues
+  - Root cause analysis for each problem
+  - 7 recommended fixes with code examples
+  - Testing plan and migration guide for users
+  - Code location appendix for quick reference
+
+## [0.5.4] - 2025-10-25
+
+### 🐛 **Fixed**
+
+- **MCP server binary permissions** - Fixed "Permission denied" error when connecting to In Memoria MCP server via npx
+  - Added `fix-permissions` script to set execute permissions on `dist/index.js` after TypeScript compilation
+  - Created `build:ts` script for CI/CD TypeScript-only builds that includes permission fix
+  - Updated release workflow to use new `build:ts` script ensuring published packages have correct permissions
+  - Cross-platform compatible: uses try-catch for chmod on Windows where it's not critical
+
+## [0.5.3] - 2025-10-24
+
+### 🐛 **Fixed**
+
+- **Progress tracking display** - Fixed janky and unreliable progress reports during learning (closes #11)
+  - Eliminated console flooding with duplicate progress bar renders
+  - Fixed line clearing issues that were erasing previous console output
+  - Removed duplicate "Learning Complete!" messages appearing multiple times
+  - Progress bars now update in-place smoothly without flickering
+  - Empty progress bars no longer appear before phases actually start
+  - All phases displayed consistently from start to finish
+  - Fixed update frequency to 500ms for smooth, non-intrusive updates
+  - Applied consistent progress display across all commands: `learn`, `setup --interactive`, and MCP `auto_learn_if_needed` tool
+
+## [0.5.1] - 2025-10-24
+
+### 🐛 **Fixed**
+
+- **End user installation** - Removed unnecessary native dependencies that caused C++20 compilation errors
+  - Removed tree-sitter packages from dependencies (tree-sitter is implemented in Rust, not TypeScript)
+  - Removed unused `ws` package
+  - End users can now install from npm without requiring C++20 compiler flags
+
+## [0.5.0] - 2025-10-24
+
+### ✨ **Added**
+
+#### 🗺️ **Project Blueprint System (Phase 1)**
+
+- **Token-efficient project intelligence** - New blueprint system eliminates cold start exploration by providing instant project context
+  - **Entry point detection** - Automatically identifies web, API, CLI, and worker entry points based on framework patterns (React, Express, FastAPI, Svelte)
+  - **Key directory mapping** - Discovers and categorizes important directories (components, utils, services, auth, models, etc.)
+  - **Architecture inference** - Determines project architecture pattern (Component-Based, REST API, Service-Oriented, MVC, Modular)
+  - **Feature-to-file mapping** - Foundation for mapping features to their implementation files
+- **New database tables** - Added `feature_map`, `entry_points`, and `key_directories` tables with full migration support (Migration v5)
+- **Enhanced `learn_codebase_intelligence` tool** - Now returns blueprint data in response including tech stack, entry points, key directories, and architecture
+- **New `get_project_blueprint` tool** - Fast blueprint access without full learning, provides instant project context (<200 tokens target)
+- **Blueprint detection in SemanticEngine** - `detectEntryPoints()` and `mapKeyDirectories()` methods automatically enrich codebase analysis
+- **Comprehensive database methods** - Full CRUD operations for blueprint tables with proper TypeScript interfaces
+
+#### 🎯 **Token Efficiency Goals**
+
+- **Cold start optimization** - Target <200 tokens for initial project understanding (vs current ~3000+ tokens)
+- **Direct file access** - Agents can jump straight to relevant files without exploration
+- **Session resume** - Target <100 tokens to restore work context
+- **Smart routing** - Target <50 tokens to route vague requests to specific files
+
+#### 💼 **Work Context System (Phase 2)**
+
+- **Session tracking infrastructure** - New work session management for AI agent memory and context continuity
+  - **Work session persistence** - Track current files, pending tasks, completed tasks, and blockers across AI sessions
+  - **Project decision history** - Record architectural decisions with reasoning for future reference
+  - **Session resume capability** - Enable agents to pick up exactly where they left off (target <100 tokens)
+- **New database tables** - Added `work_sessions` and `project_decisions` tables with full migration support (Migration v6)
+- **Enhanced `get_developer_profile` tool** - Added optional `includeWorkContext` parameter to include current work session data
+  - Returns current files being worked on
+  - Lists pending tasks and recently completed tasks
+  - Provides recent project decisions with reasoning
+- **Enhanced `contribute_insights` tool** - Added optional `sessionUpdate` parameter to update work context
+  - Update current files and feature being worked on
+  - Modify task lists (pending/completed)
+  - Record project decisions with key-value pairs and reasoning
+- **Comprehensive session management** - Full CRUD operations for work sessions and decisions
+  - `createWorkSession()` - Initialize new work sessions
+  - `updateWorkSession()` - Update session state (files, tasks, feature)
+  - `getCurrentWorkSession()` - Retrieve active session for project
+  - `upsertProjectDecision()` - Store or update architectural decisions
+  - `getProjectDecisions()` - Fetch recent decisions with reasoning
+
+#### 🧭 **Smart Navigation & Routing (Phase 3)**
+
+- **Feature-to-file mapping engine** - Automatically maps project features to their implementation files
+  - **10 feature categories** - Authentication, API, database, UI components, views, services, utilities, testing, configuration, middleware
+  - **Directory pattern detection** - Intelligent mapping based on common project structures
+  - **File collection and categorization** - Splits files into primary and related categories for targeted navigation
+- **Request routing intelligence** - Routes vague task descriptions to specific files
+  - **Work type detection** - Automatically classifies tasks as feature, bugfix, refactor, or test
+  - **Keyword-based routing** - Matches problem descriptions to relevant features using 20+ common keywords
+  - **Smart file suggestions** - Returns top 5 most relevant files with suggested starting point
+- **Enhanced `predict_coding_approach` tool** - Added optional `includeFileRouting` parameter
+  - Returns intended feature, target files, work type, and suggested starting point
+  - Enables agents to jump directly to relevant code without exploration
+- **Enhanced `get_pattern_recommendations` tool** - Added optional `includeRelatedFiles` parameter
+  - Suggests related files where similar patterns are used
+  - Helps agents discover consistent implementation patterns across the codebase
+- **Feature map database methods** - New methods for searching and accessing feature mappings
+  - `searchFeatureMaps()` - Search features by keyword with case-insensitive matching
+  - `getFeatureByName()` - Retrieve specific feature mapping by exact name
+- **Pattern-based file discovery** - `findFilesUsingPatterns()` method matches patterns to feature categories
+  - Links testing patterns to test files, API patterns to API files, etc.
+  - Returns up to 10 most relevant files for given pattern recommendations
+
+### 🛠️ **Changed**
+
+- **Database schema** - Added blueprint-related tables (Phase 1) and work context tables (Phase 2) with proper foreign key constraints
+- **Migration system** - Enhanced validation for blueprint tables (Migration v5) and session tracking (Migration v6)
+- **CodebaseAnalysisResult interface** - Extended with optional `entryPoints` and `keyDirectories` fields
+- **DeveloperProfile interface** - Extended with optional `currentWork` field containing session context
+- **Tool architecture** - Phase 1 (blueprint), Phase 2 (work context), and Phase 3 (smart navigation) complete; ready for Phase 4 (tool consolidation)
+
+### 🐛 **Fixed**
+
+- **Phase 1-4 integration** - Fixed missing route handlers and Rust exports causing test failures
+  - Added `get_project_blueprint` route handler (Phase 1 feature was defined but not routed)
+  - Fixed BlueprintAnalyzer Rust exports and removed incorrect constructor calls
+  - Added missing validation schema parameters (`skipLearning`, `includeSetupSteps`)
+  - Fixed migration rollback to version 0 (now properly deletes migration records)
+  - Fixed Rust HashMap type compatibility in pattern prediction context handling
+- **Progress rendering** - Improved learning process console output clarity and accuracy
+  - Only display phases after they've started (eliminates visual clutter)
+  - Removed duplicate progress updates during phase transitions
+  - Phases now appear progressively instead of all at once
+
 ## [0.4.6] - 2025-09-11
 
 ### 🐛 **Fixed**
+
 - **CLI help accuracy** - Fixed misrepresented flags and outdated environment variables in help text (closes #2)
 - **Learning process crash** - Fixed "Cannot read properties of undefined (reading 'toFixed')" error during complexity analysis
 - **Framework detection false positives** - Improved accuracy by using file extension counting instead of unreliable source code text matching, fixes dependency pattern specificity (closes #8)
