@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { runServer } from './mcp-server/server.js';
 import { FileWatcher } from './watchers/file-watcher.js';
 import { ChangeAnalyzer } from './watchers/change-analyzer.js';
 import { SemanticEngine } from './engines/semantic-engine.js';
+import type { CodebaseAnalysisResult } from './engines/semantic-engine.js';
 import { PatternEngine } from './engines/pattern-engine.js';
+import { ProjectIntelligenceEngine } from './engines/project-intelligence-engine.js';
 import { SQLiteDatabase } from './storage/sqlite-db.js';
 import { SemanticVectorDB } from './storage/vector-db.js';
 import { InteractiveSetup } from './cli/interactive-setup.js';
@@ -92,6 +94,13 @@ async function main() {
       const analyzePath = args[1] || process.cwd();
       await analyzeCodebase(analyzePath);
       break;
+
+    case 'blueprint': {
+      const blueprintPath = args.find((arg, index) => index > 0 && !arg.startsWith('--')) || args[1] || process.cwd();
+      const refresh = args.includes('--refresh');
+      await showProjectBlueprint(blueprintPath, { refresh });
+      break;
+    }
 
     case 'init':
       const initPath = args[1] || process.cwd();
@@ -320,6 +329,64 @@ async function analyzeCodebase(path: string): Promise<void> {
   }
 }
 
+async function showProjectBlueprint(path: string, options: { refresh: boolean }): Promise<void> {
+  console.log(`Project blueprint for: ${path}`);
+
+  const normalizedPath = resolve(path);
+  const database = new SQLiteDatabase(config.getDatabasePath(normalizedPath));
+  const vectorDB = new SemanticVectorDB(process.env.OPENAI_API_KEY);
+  const semanticEngine = new SemanticEngine(database, vectorDB);
+  const projectEngine = new ProjectIntelligenceEngine(database);
+
+  try {
+    let summary: CodebaseAnalysisResult | undefined;
+
+    if (options.refresh) {
+      try {
+        summary = await semanticEngine.analyzeCodebase(normalizedPath);
+      } catch (error) {
+        console.warn('⚠️  Failed to refresh semantic summary, proceeding with cached data:', error);
+      }
+    }
+
+    const existing = database.getProjectBlueprint(normalizedPath);
+    if (options.refresh || !existing) {
+      if (!summary) {
+        try {
+          summary = await semanticEngine.analyzeCodebase(normalizedPath);
+        } catch (error) {
+          console.warn('⚠️  Semantic analysis failed, continuing with existing blueprint (if any):', error);
+        }
+      }
+
+      await projectEngine.generateBlueprint({
+        projectPath: normalizedPath,
+        semanticSummary: summary
+      });
+    }
+
+    const blueprint = database.getProjectBlueprint(normalizedPath);
+    const featureMap = database.listFeatureMap(normalizedPath);
+    const sessions = database.listActiveWorkSessions(normalizedPath);
+    const decisions = database.listProjectDecisions(normalizedPath);
+
+    console.log(JSON.stringify({
+      blueprint,
+      featureMap,
+      sessions,
+      decisions
+    }, null, 2));
+  } finally {
+    try {
+      await vectorDB.close();
+    } catch (error) {
+      console.warn('Warning: Failed to close vector database:', error);
+    }
+    semanticEngine.cleanup();
+    database.close();
+  }
+}
+
 async function initializeProject(path: string): Promise<void> {
   console.log(`Initializing In Memoria for project: ${path}`);
 
@@ -400,6 +467,7 @@ Commands:
   watch [path]             Start file watcher for real-time intelligence updates
   learn [path]             Learn from codebase and build intelligence
   analyze [path]           Analyze codebase and show insights
+  blueprint [path]         Show project blueprint, feature map, and sessions (use --refresh to regenerate)
   init [path]              Initialize In Memoria for a project (basic)
   version, --version, -v    Show version information
 
@@ -419,6 +487,7 @@ Examples:
   in-memoria watch ./src
   in-memoria learn ./my-project
   in-memoria analyze ./src
+  in-memoria blueprint ./my-project --refresh
   in-memoria init
 
 Environment Variables:

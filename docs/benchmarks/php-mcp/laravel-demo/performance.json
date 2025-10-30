@@ -1,0 +1,70 @@
+{
+  "success": true,
+  "performance": {
+    "database": {
+      "queryPerformance": {
+        "conceptsMs": 2,
+        "patternsMs": 1,
+        "performanceRating": "excellent"
+      }
+    },
+    "memory": {
+      "heapUsed": 29,
+      "heapTotal": 63
+    },
+    "system": {
+      "nodeVersion": "v20.11.1",
+      "platform": "linux-x64",
+      "uptime": 4
+    },
+    "benchmark": {},
+    "intelligence": {
+      "conceptsByLanguage": {
+        "php": 6
+      },
+      "php": {
+        "total": 6,
+        "classes": 6,
+        "traits": 0,
+        "interfaces": 0,
+        "docblocks": 0,
+        "attributes": 0
+      },
+      "perLanguage": [
+        {
+          "language": "php",
+          "filesAnalyzed": 1,
+          "conceptsExtracted": 1,
+          "parseTimeMs": 0.98778,
+          "parseErrors": 0,
+          "fallbacks": 0,
+          "vendorSkipped": 0
+        }
+      ],
+      "lastAnalysisDurationMs": 188,
+      "lastAnalysis": {
+        "analysisType": "learning",
+        "analyzedAt": "2025-10-30T11:30:29.722Z",
+        "durationMs": 188,
+        "conceptsByLanguage": {
+          "php": 1
+        },
+        "filesByLanguage": {
+          "php": 1
+        },
+        "perLanguage": [
+          {
+            "language": "php",
+            "filesAnalyzed": 1,
+            "conceptsExtracted": 1,
+            "parseTimeMs": 0.98778,
+            "parseErrors": 0,
+            "fallbacks": 0,
+            "vendorSkipped": 0
+          }
+        ]
+      }
+    }
+  },
+  "message": "Performance: DB undefinedMB, Memory 29MB"
+}

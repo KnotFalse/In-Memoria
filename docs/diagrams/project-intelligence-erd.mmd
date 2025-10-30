@@ -1,0 +1,62 @@
+%% Mermaid ER diagram for project intelligence tables
+
+erDiagram
+    project_blueprints {
+      TEXT project_path PK "Project root path"
+      TEXT name
+      TEXT description
+      TEXT tech_stack "JSON array"
+      TEXT entry_points "JSON map"
+      TEXT key_directories "JSON map"
+      TEXT architecture_style
+      TEXT testing_framework
+      TEXT build_system
+      DATETIME last_analyzed
+      DATETIME created_at
+      DATETIME updated_at
+    }
+
+    feature_map {
+      TEXT project_path FK
+      TEXT feature_name PK
+      TEXT primary_files "JSON array"
+      TEXT related_files "JSON array"
+      TEXT dependencies "JSON array"
+      TEXT status
+      TEXT notes
+      DATETIME created_at
+      DATETIME updated_at
+    }
+
+    work_sessions {
+      TEXT session_id PK
+      TEXT project_path FK
+      TEXT last_feature
+      TEXT current_files "JSON array"
+      TEXT completed_tasks "JSON array"
+      TEXT pending_tasks "JSON array"
+      TEXT blockers "JSON array"
+      TEXT session_notes
+      DATETIME last_updated
+      DATETIME created_at
+    }
+
+    project_decisions {
+      TEXT project_path FK
+      TEXT decision_key PK
+      TEXT decision_value
+      TEXT reasoning
+      DATETIME made_at
+      DATETIME created_at
+    }
+
+    tool_usage {
+      INTEGER id PK AUTOINCREMENT
+      TEXT tool_name
+      DATETIME invoked_at
+    }
+
+    project_blueprints ||--o{ feature_map : "has"
+    project_blueprints ||--o{ work_sessions : "records"
+    project_blueprints ||--o{ project_decisions : "captures"
+    project_blueprints ||--o{ tool_usage : "optionally reports"

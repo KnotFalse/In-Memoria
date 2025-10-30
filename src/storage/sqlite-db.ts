@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync, existsSync } from 'fs';
 import { dirname, isAbsolute } from 'path';
+import { nanoid } from 'nanoid';
 import { DatabaseMigrator } from './migrations.js';
 import { Logger } from '../utils/logger.js';
 
@@ -105,6 +106,34 @@ export interface ProjectDecision {
   reasoning?: string;
   madeAt: Date;
 }
+
+export type FeatureMapping = FeatureMap;
+export type ProjectDecisionRecord = ProjectDecision;
+export type WorkSessionRecord = WorkSession;
+
+export interface ProjectBlueprint {
+  projectPath: string;
+  name: string | null;
+  description: string | null;
+  techStack: string[];
+  entryPoints: Record<string, string>;
+  keyDirectories: Record<string, string>;
+  architectureStyle: string | null;
+  testingFramework: string | null;
+  buildSystem: string | null;
+  lastAnalyzed: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const BLUEPRINT_DECISION_KEYS = {
+  description: '__blueprint__description',
+  architecture: '__blueprint__architecture_style',
+  testing: '__blueprint__testing_framework',
+  build: '__blueprint__build_system'
+} as const;
+
+const BLUEPRINT_DECISION_KEYS_SET = new Set(Object.values(BLUEPRINT_DECISION_KEYS));
 
 export class SQLiteDatabase {
   private db: Database.Database;
@@ -368,6 +397,28 @@ export class SQLiteDatabase {
     }));
   }
 
+  listFeatureMap(projectPath: string): FeatureMapping[] {
+    return this.getFeatureMaps(projectPath);
+  }
+
+  replaceFeatureMap(projectPath: string, features: Array<Omit<FeatureMapping, 'createdAt' | 'updatedAt'>>): void {
+    const deleteStmt = this.db.prepare('DELETE FROM feature_map WHERE project_path = ?');
+    deleteStmt.run(projectPath);
+
+    for (const feature of features) {
+      this.insertFeatureMap({
+        id: feature.id ?? nanoid(),
+        projectPath: feature.projectPath,
+        featureName: feature.featureName,
+        primaryFiles: feature.primaryFiles,
+        relatedFiles: feature.relatedFiles ?? [],
+        dependencies: feature.dependencies ?? [],
+        status: feature.status ?? 'active',
+        notes: (feature as any).notes // ignored column; retained for compatibility
+      });
+    }
+  }
+
   searchFeatureMaps(projectPath: string, query: string): FeatureMap[] {
     const stmt = this.db.prepare(`
       SELECT * FROM feature_map
@@ -572,6 +623,132 @@ export class SQLiteDatabase {
     };
   }
 
+  upsertProjectBlueprint(blueprint: {
+    projectPath: string;
+    name: string | null;
+    description: string | null;
+    techStack: string[];
+    entryPoints: Record<string, string>;
+    keyDirectories: Record<string, string>;
+    architectureStyle?: string | null;
+    testingFramework?: string | null;
+    buildSystem?: string | null;
+    lastAnalyzed?: Date | null;
+  }): void {
+    const metadataId = blueprint.projectPath;
+
+    this.insertProjectMetadata({
+      projectId: metadataId,
+      projectPath: blueprint.projectPath,
+      projectName: blueprint.name || undefined,
+      languagePrimary: blueprint.techStack[0] || undefined,
+      languagesDetected: blueprint.techStack,
+      frameworkDetected: blueprint.architectureStyle ? [blueprint.architectureStyle] : [],
+      intelligenceVersion: 'project-intelligence@1',
+      lastFullScan: blueprint.lastAnalyzed ?? new Date()
+    });
+
+    // Replace entry points
+    const deleteEntryPoints = this.db.prepare('DELETE FROM entry_points WHERE project_path = ?');
+    deleteEntryPoints.run(blueprint.projectPath);
+
+    for (const [entryType, path] of Object.entries(blueprint.entryPoints ?? {})) {
+      if (!path) continue;
+      this.insertEntryPoint({
+        id: nanoid(),
+        projectPath: blueprint.projectPath,
+        entryType,
+        filePath: path,
+        description: undefined,
+        framework: undefined
+      });
+    }
+
+    // Replace key directories
+    const deleteKeyDirs = this.db.prepare('DELETE FROM key_directories WHERE project_path = ?');
+    deleteKeyDirs.run(blueprint.projectPath);
+
+    for (const [dirType, dirPath] of Object.entries(blueprint.keyDirectories ?? {})) {
+      if (!dirPath) continue;
+      this.insertKeyDirectory({
+        id: nanoid(),
+        projectPath: blueprint.projectPath,
+        directoryPath: dirPath,
+        directoryType: dirType,
+        fileCount: 0,
+        description: undefined
+      });
+    }
+
+    // Store blueprint-specific metadata as project decisions
+    const deleteBlueprintDecisions = this.db.prepare(`
+      DELETE FROM project_decisions WHERE project_path = ? AND decision_key LIKE '__blueprint__%'
+    `);
+    deleteBlueprintDecisions.run(blueprint.projectPath);
+
+    const decisions: Array<{ key: string; value: string | null }> = [
+      { key: BLUEPRINT_DECISION_KEYS.description, value: blueprint.description },
+      { key: BLUEPRINT_DECISION_KEYS.architecture, value: blueprint.architectureStyle ?? null },
+      { key: BLUEPRINT_DECISION_KEYS.testing, value: blueprint.testingFramework ?? null },
+      { key: BLUEPRINT_DECISION_KEYS.build, value: blueprint.buildSystem ?? null }
+    ];
+
+    for (const decision of decisions) {
+      if (decision.value === null) continue;
+      this.upsertProjectDecision({
+        id: nanoid(),
+        projectPath: blueprint.projectPath,
+        decisionKey: decision.key,
+        decisionValue: decision.value,
+        reasoning: null
+      });
+    }
+  }
+
+  getProjectBlueprint(projectPath: string): ProjectBlueprint | null {
+    const metadata = this.getProjectMetadata(projectPath);
+    if (!metadata) return null;
+
+    const entryPoints = this.getEntryPoints(projectPath).reduce<Record<string, string>>((acc, entry) => {
+      if (!acc[entry.entryType]) {
+        acc[entry.entryType] = entry.filePath;
+      }
+      return acc;
+    }, {});
+
+    const keyDirectories = this.getKeyDirectories(projectPath).reduce<Record<string, string>>((acc, dir) => {
+      if (!acc[dir.directoryType]) {
+        acc[dir.directoryType] = dir.directoryPath;
+      }
+      return acc;
+    }, {});
+
+    const decisions = this.getProjectDecisions(projectPath, 50);
+    const blueprintDecisions = decisions.filter((decision) => BLUEPRINT_DECISION_KEYS_SET.has(decision.decisionKey));
+
+    const getDecisionValue = (key: string): string | null => {
+      const decision = blueprintDecisions.find((d) => d.decisionKey === key);
+      return decision ? decision.decisionValue : null;
+    };
+
+    const blueprint: ProjectBlueprint = {
+      projectPath: metadata.projectPath,
+      name: metadata.projectName ?? null,
+      description: getDecisionValue(BLUEPRINT_DECISION_KEYS.description),
+      techStack: metadata.languagesDetected ?? [],
+      entryPoints,
+      keyDirectories,
+      architectureStyle: getDecisionValue(BLUEPRINT_DECISION_KEYS.architecture),
+      testingFramework: getDecisionValue(BLUEPRINT_DECISION_KEYS.testing),
+      buildSystem: getDecisionValue(BLUEPRINT_DECISION_KEYS.build),
+      lastAnalyzed: metadata.lastFullScan ?? null,
+      createdAt: metadata.createdAt,
+      updatedAt: metadata.updatedAt
+    };
+
+    return blueprint;
+  }
+
   createWorkSession(session: Omit<WorkSession, 'sessionStart' | 'lastUpdated'>): void {
     const stmt = this.db.prepare(`
       INSERT INTO work_sessions (
@@ -675,6 +852,7 @@ export class SQLiteDatabase {
 
     return rows.map(row => ({
       id: row.id,
+      sessionId: row.id,
       projectPath: row.project_path,
       sessionStart: new Date(row.session_start + ' UTC'),
       sessionEnd: row.session_end ? new Date(row.session_end + ' UTC') : undefined,
@@ -686,6 +864,71 @@ export class SQLiteDatabase {
       sessionNotes: row.session_notes,
       lastUpdated: new Date(row.last_updated + ' UTC')
     }));
+  }
+
+  getWorkSession(sessionId: string): WorkSession | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM work_sessions WHERE id = ? LIMIT 1
+    `);
+    const row = stmt.get(sessionId) as any;
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      sessionId: row.id,
+      projectPath: row.project_path,
+      sessionStart: new Date(row.session_start + ' UTC'),
+      sessionEnd: row.session_end ? new Date(row.session_end + ' UTC') : undefined,
+      lastFeature: row.last_feature,
+      currentFiles: JSON.parse(row.current_files || '[]'),
+      completedTasks: JSON.parse(row.completed_tasks || '[]'),
+      pendingTasks: JSON.parse(row.pending_tasks || '[]'),
+      blockers: JSON.parse(row.blockers || '[]'),
+      sessionNotes: row.session_notes,
+      lastUpdated: new Date(row.last_updated + ' UTC')
+    };
+  }
+
+  upsertWorkSession(session: {
+    sessionId: string;
+    projectPath: string;
+    lastFeature: string | null;
+    currentFiles: string[];
+    completedTasks: string[];
+    pendingTasks: string[];
+    blockers: string[];
+    sessionNotes: string | null;
+  }): void {
+    const existing = this.getWorkSession(session.sessionId);
+
+    if (!existing) {
+      this.createWorkSession({
+        id: session.sessionId,
+        projectPath: session.projectPath,
+        sessionEnd: null,
+        lastFeature: session.lastFeature ?? undefined,
+        currentFiles: session.currentFiles,
+        completedTasks: session.completedTasks,
+        pendingTasks: session.pendingTasks,
+        blockers: session.blockers,
+        sessionNotes: session.sessionNotes ?? undefined
+      });
+      return;
+    }
+
+    this.updateWorkSession(session.sessionId, {
+      lastFeature: session.lastFeature ?? undefined,
+      currentFiles: session.currentFiles,
+      completedTasks: session.completedTasks,
+      pendingTasks: session.pendingTasks,
+      blockers: session.blockers,
+      sessionNotes: session.sessionNotes ?? undefined
+    });
+  }
+
+  listActiveWorkSessions(projectPath: string, limit = 10): WorkSession[] {
+    return this.getWorkSessions(projectPath, limit).filter((session) => !session.sessionEnd);
   }
 
   upsertProjectDecision(decision: Omit<ProjectDecision, 'madeAt'>): void {
@@ -721,6 +964,10 @@ export class SQLiteDatabase {
       reasoning: row.reasoning,
       madeAt: new Date(row.made_at + ' UTC')
     }));
+  }
+
+  listProjectDecisions(projectPath: string, limit = 20): ProjectDecision[] {
+    return this.getProjectDecisions(projectPath, limit);
   }
 
   getProjectDecision(projectPath: string, decisionKey: string): ProjectDecision | null {
