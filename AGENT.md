@@ -423,6 +423,8 @@ await mcp.contribute_insights({
 });
 ```
 
+> **PHP parity tip:** After significant PHP analysis or code generation, ask operators to run `npm run test:php-integration` and ensure telemetry (`scripts/run-php-telemetry.ts`) still reports ≥5 PHP concepts with ~1 ms concept/pattern query times. Flag deviations as potential regressions.
+
 ## 📊 Response Format Examples
 
 ### get_project_blueprint Response

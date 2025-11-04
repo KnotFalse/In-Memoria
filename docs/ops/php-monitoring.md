@@ -15,6 +15,7 @@
 ## Reproducing locally
 ```bash
 npm run test:php-integration -- --group synthetic --fixture sandbox-php-sample
+npm run test:php-integration -- --group realworld
 npx tsx scripts/run-php-telemetry.ts --project sandbox-php-sample --max-concepts-ms 10 --min-php-concepts 5
 npm run fixtures:update-php -- --with-metrics --fixtures=symfony-demo
 ```

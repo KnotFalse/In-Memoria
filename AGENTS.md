@@ -38,12 +38,13 @@ Maintain a constructive, but rigorous, approach. Your role is not to argue for t
 - `npm run dev` — start the MCP server in watch mode.
 - `npm test`, `npm run test:unit`, `npm run test:integration`, `npm run test:perf` — execute JavaScript test suites.
 - `npm run test:php-integration` — run the PHP QA harness (sandbox sample + Laravel/Symfony/WordPress fixtures) and capture metrics under `tmp/metrics/`.
+- Telemetry baselines: sandbox fixture should report ≥5 PHP concepts with ~1 ms concept/pattern query times (`scripts/run-php-telemetry.ts --max-concepts-ms 10 --min-php-concepts 5`).
 - `npm run fixtures:update-php -- --with-metrics` — refresh PHP real-world fixtures and automatically capture updated benchmarks.
 - `npx in-memoria blueprint [path] [--refresh]` — inspect the cached project blueprint, feature map, and work sessions for a project.
 - `npm run test -- --run script-cleanup` — enforce that scripts close `SemanticEngine`/`SemanticVectorDB` resources.
 - `npx tsx scripts/summarize-tool-usage.ts [project-path]` — inspect MCP tool invocation frequencies captured in the local database.
 - Review `docs/release-checklist.md` before finalizing releases.
-- `cd rust-core && cargo test` / `cargo clippy` — Rust tests and linting; keep clippy clean.
+- `cd rust-core && cargo test --features all-languages` / `cargo clippy` — Rust tests and linting; keep clippy clean.
 
 ## Coding Style & Naming Conventions
 - TypeScript: strict mode, explicit types, async/await, descriptive identifiers (`analyzeProjectStructure` over `doStuff`).

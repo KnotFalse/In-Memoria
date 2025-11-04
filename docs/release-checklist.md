@@ -12,6 +12,10 @@
 - [ ] Review latest GitHub Actions runs:
   - `PHP Telemetry` workflow success and thresholds.
   - `PHP QA Harness` artifact (`php-integration-report.json`).
+- [ ] Run targeted regression checks:
+  - `cargo test --features all-languages` (extractor, parser, and pattern gating)
+  - `vitest run src/__tests__/php-integration.test.ts`
+  - `npm run test:php-integration -- --group synthetic --fixture sandbox-php-sample`
 - [ ] Optional: run `npm run fixtures:update-php -- --with-metrics` locally if fixtures moved forward.
 
 ## MCP Tool Surface
