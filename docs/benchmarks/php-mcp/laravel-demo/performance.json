@@ -2,69 +2,40 @@
   "success": true,
   "performance": {
     "database": {
+      "size": {
+        "bytes": 229376,
+        "mb": 0.22
+      },
+      "lastModified": "2025-11-04T00:06:29.287Z",
       "queryPerformance": {
-        "conceptsMs": 2,
+        "conceptQueryTime": 1,
+        "conceptsMs": 1,
+        "conceptCount": 1,
+        "patternQueryTime": 1,
         "patternsMs": 1,
         "performanceRating": "excellent"
       }
     },
     "memory": {
-      "heapUsed": 29,
-      "heapTotal": 63
+      "rss": 257,
+      "heapUsed": 30,
+      "heapTotal": 64,
+      "external": 53,
+      "unit": "MB"
     },
     "system": {
       "nodeVersion": "v20.11.1",
       "platform": "linux-x64",
-      "uptime": 4
+      "uptime": 3
     },
     "benchmark": {},
     "intelligence": {
       "conceptsByLanguage": {
-        "php": 6
+        "php": 1
       },
-      "php": {
-        "total": 6,
-        "classes": 6,
-        "traits": 0,
-        "interfaces": 0,
-        "docblocks": 0,
-        "attributes": 0
-      },
-      "perLanguage": [
-        {
-          "language": "php",
-          "filesAnalyzed": 1,
-          "conceptsExtracted": 1,
-          "parseTimeMs": 0.98778,
-          "parseErrors": 0,
-          "fallbacks": 0,
-          "vendorSkipped": 0
-        }
-      ],
-      "lastAnalysisDurationMs": 188,
-      "lastAnalysis": {
-        "analysisType": "learning",
-        "analyzedAt": "2025-10-30T11:30:29.722Z",
-        "durationMs": 188,
-        "conceptsByLanguage": {
-          "php": 1
-        },
-        "filesByLanguage": {
-          "php": 1
-        },
-        "perLanguage": [
-          {
-            "language": "php",
-            "filesAnalyzed": 1,
-            "conceptsExtracted": 1,
-            "parseTimeMs": 0.98778,
-            "parseErrors": 0,
-            "fallbacks": 0,
-            "vendorSkipped": 0
-          }
-        ]
-      }
+      "totalConcepts": 1,
+      "patternCount": 0
     }
   },
-  "message": "Performance: DB undefinedMB, Memory 29MB"
+  "message": "Performance: DB 0.22MB, Memory 30MB"
 }
