@@ -11,6 +11,8 @@ _Additions emphasize concrete touchpoints, sequencing, automation, and acceptanc
 
 _Environment readiness_: Node.js ≥20, Rust ≥1.70, tree-sitter CLI for regenerating node maps, Composer (optional) for sample repos.
 
+_Scope guard_: PHP should become a first-class citizen with the **same** capabilities other supported languages enjoy—no bespoke extras. Every addition below maps directly to parity gaps (parser wiring, extractor export, TypeScript routing, telemetry).
+
 ---
 
 ## 1) Repository Recon (align intent with code)
@@ -95,7 +97,7 @@ _Status_: PHP extractor emits concepts (class/trait/method/docblocks), naming/pa
 ---
 
 ## 10) Release & Rollout
-1. **Feature flag** (optional): gate PHP support behind config until QA complete.
+1. **Feature flag** (optional): gate PHP support behind config until QA complete. *(Decision 2025-11-03: not pursuing; PHP now matches other languages and would gain no additional safeguards.)*
 2. **Docs**: update `README.md`, `CHANGELOG.md`, add FAQ entry about Blade/Twig and vendor handling.
 3. **Version bump**: plan minor release once parity achieved.
 
@@ -114,15 +116,57 @@ _Status_: PHP extractor emits concepts (class/trait/method/docblocks), naming/pa
 
 ## 12) Acceptance Criteria
 1. **AST**: PHP listed in `ParserManager::available_languages()`; `cargo test` PHP suite green.
-2. **Detection**: `npx in-memoria learn ./sample-php` logs vendor exclusions; `get_project_structure` shows PSR-4 mappings.
-3. **Pattern Learner**: `get_developer_profile` on Laravel skeleton shows naming frequencies, typed signature ratio, attribute usage.
+2. **Detection**: `npx in-memoria learn ./sample-php` logs vendor exclusions; `get_project_structure` shows PSR-4 mappings. *(2025-11-03: see `docs/benchmarks/php-mcp/laravel-demo/project-structure.json`)*.
+3. **Pattern Learner**: `get_developer_profile` on Laravel skeleton shows naming frequencies, typed signature ratio, attribute usage. *(2025-11-03: snapshot stored at `docs/benchmarks/php-mcp/laravel-demo/developer-profile.json`)*.
 4. **Performance**: `get_performance_status` PHP metrics within ±10% of Python baseline.
 5. **Docs**: README, CHANGELOG, AGENTS guide updated; new helper doc (if created) published.
 
 ---
 
 ## 13) Next Actions for Agents (2025-10-20 update)
-1. Rebuild `rust-core` with the new metrics exports (`npm run build:rust` + `cargo test`) so PHP parse timings populate and Step 6 can close (Agent: Rust Core).
+1. Rebuild `rust-core` with the new metrics exports (`npm run build:rust` + `cargo test`) so PHP parse timings populate and Step 6 can close (Agent: Rust Core). *(✅ 2025-11-01: `npm run build:rust` succeeds; `cargo test` currently requires `--no-default-features --features all-languages` until napi linkage is disentangled in Step 2.)*
 2. Decide whether to add a blanket `cache/` ignore or document why it remains opt-in; update docs if we keep the narrower set (Agent: TypeScript Server).
-3. Stand up the Step 7 QA harness (`npm run test:php-integration` scaffolding + sample repos) once metrics flow is verified (Agent: QA/Bench).
+3. Stand up the Step 7 QA harness (`npm run test:php-integration` scaffolding + sample repos) once metrics flow is verified (Agent: QA/Bench). *(✅ 2025-11-03: Added npm script wrapping `scripts/php-integration-check.ts`; docs updated and command verified with synthetic fixtures.)*
 4. Prep README/CHANGELOG/AGENTS updates to announce PHP parity after metrics + QA land (Agent: Docs).
+
+---
+
+## 14) Implementation Plan – 2025-11-01 (pending execution)
+
+### Step 1 – Restore Python concept emission parity _(blocker for PHP comparatives)_
+- [x] Design traversal that walks the Python syntax tree depth-first so `module` nodes delegate to child extraction.
+- [x] Patch `PythonExtractor::extract_concepts` to recurse and surface concepts for classes/functions/assignments, mirroring the traversal strategy used by TypeScript/Rust extractors.
+- [x] Re-ran `cargo test test_python_class_extraction test_python_function_extraction --features all-languages` (plus a decorator regression) to prove parity with default features enabled.
+
+_Why_: PHP metrics are benchmarked against Python today; without a working Python baseline the pattern learner cannot validate PHP output. TypeScript/Rust already traverse their AST roots, so this restores parity rather than adding net-new capability.
+
+### Step 2 – Re-enable Rust unit testing for language extractors _(ensures PHP coverage stays enforceable)_
+- [x] Updated `rust-core/Cargo.toml` crate type to include `rlib` alongside `cdylib` and moved N-API activation behind the npm build scripts.
+- [x] Verified the linker path by running focused suites (`cargo test test_python_class_extraction --features all-languages`) without `--no-default-features`.
+- [x] Documented the new workflow in `docs/php/phase1-instrumentation.md` and the release checklist.
+
+_Why_: All non-PHP languages relied on Rust unit tests for regression gating. Restoring the rlib keeps PHP’s extractor on equal footing with TypeScript, Rust, Go, etc., without adding extra functionality.
+
+### Step 3 – Repair pattern engine regressions _(unblocks PHP pattern telemetry)_
+- [x] Audited `rust-core/src/patterns/{naming,learning,implementation,prediction}.rs` and restored scoring/aggregation logic.
+- [x] Reintroduced deterministic confidence math plus multi-suffix handling; added decorated-function coverage and PHP-aware naming contexts.
+- [x] Expanded unit coverage (including PHP naming fixtures and decorated Python functions) and ran `cargo test --features all-languages patterns::` until green.
+- [x] Confirmed pattern-learning APIs via the Rust suite; TypeScript harness remains pending but pattern surfaces now return data for PHP parity.
+
+_Why_: PHP depends on pattern learning to reach “first-class” status. Other languages already expose pattern recommendations; fixing regressions brings PHP up to that same level rather than extending scope.
+
+### Step 4 – Validate PHP telemetry & watcher heuristics _(locks parity signal)_
+- [x] Re-ran `npm run test:php-integration -- --group synthetic --fixture sandbox-php-sample` after expanding the fixture (now five PHP classes + trait coverage).
+- [x] Evaluate the `cache/` ignore question with fresh metrics; confirmed Rust-side filters already drop `cache` directories (see `rust-core/src/types/config.rs`), so TS watcher stays narrow (no concept regression observed when toggling) and plan documents the reasoning.
+- [x] Compare PHP concept/perf stats against Python baseline (<±10 %) once telemetry has the required concept volume (currently blocked by the fixture shortfall). *(2025-11-03: `npx tsx scripts/compare-language-metrics.ts tmp/metrics/php-smoke.json tmp/metrics/python-smoke.json 10` → parity at 1 ms concept/pattern queries, 5 concepts each).*
+- [x] Refresh real-world fixture metrics (`npm run test:php-integration -- --group realworld`) and update docs; curated fixtures restored under `tests/fixtures/php/*` with new metrics recorded 2025-11-04.
+
+_Why_: Other supported languages already ship with stable telemetry and watcher heuristics. Confirming PHP’s numbers keeps it consistent with those standards without inventing new tooling.
+
+### Step 5 – Documentation & communication sweep _(no new capability, just parity messaging)_
+- [x] Updated `php-integration-plan.md` and `docs/php/phase1-instrumentation.md`; release checklist now references the unified `cargo test --features all-languages` run.
+- [x] Neo4j memory MCP server confirmed available (query endpoints responding); docs updated to drop the temporary outage note.
+- [x] Append session evidence to `agent-logs/` and keep AGENTS.md/testing guidance aligned.
+- [ ] Trigger `php-telemetry` GitHub workflow after committing fixture refresh and archive the passing artifact (local script parity verified 2025-11-03).
+
+_Why_: Every language addition has ended with doc/log updates; extending the same hygiene to PHP guarantees first-class stewardship without overshooting other language docs.
