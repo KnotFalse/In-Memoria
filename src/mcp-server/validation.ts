@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import {
+  GetBlueprintSchema as ProjectIntelligenceGetBlueprintSchema,
+  FindFeatureFilesSchema,
+  ResumeSessionSchema,
+  UpdateWorkContextSchema,
+  RecordDecisionSchema
+} from './tools/project-intelligence-tools.js';
 
 // Input validation schemas for all MCP tools
 export const AnalyzeCodebaseSchema = z.object({
@@ -134,5 +141,10 @@ export const VALIDATION_SCHEMAS = {
   'quick_setup': QuickSetupSchema,
   'get_system_status': GetSystemStatusSchema,
   'get_intelligence_metrics': GetIntelligenceMetricsSchema,
-  'get_performance_status': GetPerformanceStatusSchema
+  'get_performance_status': GetPerformanceStatusSchema,
+  'project_intelligence.get_blueprint': ProjectIntelligenceGetBlueprintSchema,
+  'project_intelligence.find_feature_files': FindFeatureFilesSchema,
+  'work_memory.resume_session': ResumeSessionSchema,
+  'work_memory.update_context': UpdateWorkContextSchema,
+  'work_memory.record_decision': RecordDecisionSchema
 } as const;

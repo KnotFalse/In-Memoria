@@ -1,0 +1,126 @@
+{
+  "results": [
+    {
+      "file": "rust-core/src/patterns/structural.rs",
+      "content": "\"// User controller\",",
+      "score": 2,
+      "context": "  1024:         fs::write(\n  1025:             base_path.join(\"controllers/UserController.js\"),\n> 1026:             \"// User controller\",\n  1027:         )\n  1028:         .unwrap();",
+      "metadata": {
+        "lineNumber": 1026,
+        "matchStart": 21,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "tests/fixtures/php/symfony-demo/src/Controller/UserController.php",
+      "content": "final class UserController",
+      "score": 2,
+      "context": "  7: use Symfony\\Component\\HttpFoundation\\JsonResponse;\n  8: \n> 9: final class UserController\n  10: {\n  11:     public function show(int $id): JsonResponse",
+      "metadata": {
+        "lineNumber": 9,
+        "matchStart": 16,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "tests/fixtures/php/laravel-demo/app/Http/Controllers/UserController.php",
+      "content": "class UserController",
+      "score": 2,
+      "context": "  5: namespace App\\Http\\Controllers;\n  6: \n> 7: class UserController\n  8: {\n  9:     public function __invoke(int $id): array",
+      "metadata": {
+        "lineNumber": 7,
+        "matchStart": 10,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "src/storage/vector-db.ts",
+      "content": "{ keywords: ['service', 'controller', 'model', 'view', 'component'], weight: 1.0 },",
+      "score": 1.9,
+      "context": "  491:     // Semantic categories with weights\n  492:     const categories = [\n> 493:       { keywords: ['service', 'controller', 'model', 'view', 'component'], weight: 1.0 },\n  494:       { keywords: ['create', 'read', 'update', 'delete', 'get', 'set'], weight: 0.9 },\n  495:       { keywords: ['user', 'auth', 'login', 'token', 'session'], weight: 0.8 },",
+      "metadata": {
+        "lineNumber": 493,
+        "matchStart": 31,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "src/storage/vector-db.ts",
+      "content": "'component', 'service', 'controller', 'model', 'view', 'router',",
+      "score": 1.9,
+      "context": "  648:       'function', 'class', 'method', 'variable', 'constant', 'parameter', 'argument',\n  649:       'return', 'async', 'await', 'promise', 'callback', 'event', 'handler',\n> 650:       'component', 'service', 'controller', 'model', 'view', 'router',\n  651:       'request', 'response', 'api', 'endpoint', 'middleware', 'auth',\n  652:       'database', 'query', 'select', 'insert', 'update', 'delete',",
+      "metadata": {
+        "lineNumber": 650,
+        "matchStart": 31,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "src/engines/pattern-engine.ts",
+      "content": "'api': ['api', 'endpoint', 'route', 'controller', 'rest', 'graphql'],",
+      "score": 1.9,
+      "context": "  876:       const keywordGroups: Record<string, string[]> = {\n  877:         'authentication': ['auth', 'login', 'signup', 'register', 'password', 'session'],\n> 878:         'api': ['api', 'endpoint', 'route', 'controller', 'rest', 'graphql'],\n  879:         'database': ['database', 'db', 'model', 'schema', 'migration', 'query', 'sql'],\n  880:         'ui-components': ['component', 'ui', 'button', 'form', 'input', 'widget'],",
+      "metadata": {
+        "lineNumber": 878,
+        "matchStart": 45,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "src/__tests__/project-intelligence.test.ts",
+      "content": "engine.recordFileActivity(projectPath, 'src/Controller/HomeController.php');",
+      "score": 1.9,
+      "context": "  82:     expect(featureMap[0].primaryFiles).toContain('src/');\n  83: \n> 84:     engine.recordFileActivity(projectPath, 'src/Controller/HomeController.php');\n  85:     const sessions = db.listActiveWorkSessions(projectPath);\n  86:     expect(sessions.length).toBe(1);",
+      "metadata": {
+        "lineNumber": 84,
+        "matchStart": 48,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "src/__tests__/project-intelligence.test.ts",
+      "content": "expect(sessions[0].currentFiles).toContain('src/Controller/HomeController.php');",
+      "score": 1.9,
+      "context": "  85:     const sessions = db.listActiveWorkSessions(projectPath);\n  86:     expect(sessions.length).toBe(1);\n> 87:     expect(sessions[0].currentFiles).toContain('src/Controller/HomeController.php');\n  88:   });\n  89: ",
+      "metadata": {
+        "lineNumber": 87,
+        "matchStart": 52,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "src/__tests__/php-integration.test.ts",
+      "content": "patternId: 'php:naming:controller',",
+      "score": 1.9,
+      "context": "  134:     // Insert a representative developer pattern to exercise developer profile surfacing\n  135:     database.insertDeveloperPattern({\n> 136:       patternId: 'php:naming:controller',\n  137:       patternType: 'naming',\n  138:       patternContent: { description: 'Controllers use PascalCase' },",
+      "metadata": {
+        "lineNumber": 136,
+        "matchStart": 29,
+        "matchLength": 10,
+        "type": "text"
+      }
+    },
+    {
+      "file": "src/__tests__/php-integration.test.ts",
+      "content": "expect(developerProfile.preferredPatterns[0]?.pattern).toBe('php:naming:controller');",
+      "score": 1.9,
+      "context": "  145:     const intelligenceTools = new IntelligenceTools(semanticEngine, patternEngine, database, vectorDB);\n  146:     const developerProfile = await intelligenceTools.getDeveloperProfile({ includeRecentActivity: true });\n> 147:     expect(developerProfile.preferredPatterns[0]?.pattern).toBe('php:naming:controller');\n  148:     expect(developerProfile.codingStyle.namingConventions.classes).toBe('PascalCase');\n  149: ",
+      "metadata": {
+        "lineNumber": 147,
+        "matchStart": 76,
+        "matchLength": 10,
+        "type": "text"
+      }
+    }
+  ],
+  "totalFound": 48,
+  "searchType": "text"
+}

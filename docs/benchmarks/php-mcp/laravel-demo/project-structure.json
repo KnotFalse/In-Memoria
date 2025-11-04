@@ -1,0 +1,119 @@
+{
+  "structure": {
+    "name": "laravel-demo",
+    "type": "directory",
+    "path": "tests/fixtures/php/laravel-demo",
+    "children": [
+      {
+        "name": "app",
+        "type": "directory",
+        "path": "tests/fixtures/php/laravel-demo/app",
+        "children": [
+          {
+            "name": "Http",
+            "type": "directory",
+            "path": "tests/fixtures/php/laravel-demo/app/Http",
+            "children": [
+              {
+                "name": "Controllers",
+                "type": "directory",
+                "path": "tests/fixtures/php/laravel-demo/app/Http/Controllers",
+                "children": [
+                  {
+                    "name": "UserController.php",
+                    "type": "file",
+                    "path": "tests/fixtures/php/laravel-demo/app/Http/Controllers/UserController.php",
+                    "size": 196,
+                    "language": "php",
+                    "lastModified": "2025-10-30T15:14:54.320Z"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "composer.json",
+        "type": "file",
+        "path": "tests/fixtures/php/laravel-demo/composer.json",
+        "size": 243,
+        "language": "unknown",
+        "lastModified": "2025-10-30T15:14:54.326Z"
+      },
+      {
+        "name": "in-memoria.db",
+        "type": "file",
+        "path": "tests/fixtures/php/laravel-demo/in-memoria.db",
+        "size": 229376,
+        "language": "unknown",
+        "lastModified": "2025-11-04T00:06:29.287Z"
+      }
+    ]
+  },
+  "summary": {
+    "totalFiles": 3,
+    "languages": {
+      "php": 1,
+      "unknown": 2
+    },
+    "directories": 4,
+    "totalSize": 229815,
+    "filesByType": {
+      ".php": 1,
+      ".json": 1,
+      ".db": 1
+    },
+    "largestFiles": [
+      {
+        "name": "in-memoria.db",
+        "size": 229376,
+        "path": "tests/fixtures/php/laravel-demo/in-memoria.db"
+      },
+      {
+        "name": "composer.json",
+        "size": 243,
+        "path": "tests/fixtures/php/laravel-demo/composer.json"
+      },
+      {
+        "name": "UserController.php",
+        "size": 196,
+        "path": "tests/fixtures/php/laravel-demo/app/Http/Controllers/UserController.php"
+      }
+    ],
+    "oldestFiles": [
+      {
+        "name": "UserController.php",
+        "lastModified": "2025-10-30T15:14:54.320Z",
+        "path": "tests/fixtures/php/laravel-demo/app/Http/Controllers/UserController.php"
+      },
+      {
+        "name": "composer.json",
+        "lastModified": "2025-10-30T15:14:54.326Z",
+        "path": "tests/fixtures/php/laravel-demo/composer.json"
+      },
+      {
+        "name": "in-memoria.db",
+        "lastModified": "2025-11-04T00:06:29.287Z",
+        "path": "tests/fixtures/php/laravel-demo/in-memoria.db"
+      }
+    ],
+    "newestFiles": [
+      {
+        "name": "in-memoria.db",
+        "lastModified": "2025-11-04T00:06:29.287Z",
+        "path": "tests/fixtures/php/laravel-demo/in-memoria.db"
+      },
+      {
+        "name": "composer.json",
+        "lastModified": "2025-10-30T15:14:54.326Z",
+        "path": "tests/fixtures/php/laravel-demo/composer.json"
+      },
+      {
+        "name": "UserController.php",
+        "lastModified": "2025-10-30T15:14:54.320Z",
+        "path": "tests/fixtures/php/laravel-demo/app/Http/Controllers/UserController.php"
+      }
+    ]
+  }
+}

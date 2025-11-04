@@ -13,11 +13,13 @@ import { AutomationTools } from './tools/automation-tools.js';
 import { MonitoringTools } from './tools/monitoring-tools.js';
 import { SemanticEngine } from '../engines/semantic-engine.js';
 import { PatternEngine } from '../engines/pattern-engine.js';
+import { ProjectIntelligenceEngine } from '../engines/project-intelligence-engine.js';
 import { SQLiteDatabase } from '../storage/sqlite-db.js';
 import { SemanticVectorDB } from '../storage/vector-db.js';
 import { validateInput, VALIDATION_SCHEMAS } from './validation.js';
 import { config } from '../config/config.js';
 import { Logger } from '../utils/logger.js';
+import { ProjectIntelligenceTools } from './tools/project-intelligence-tools.js';
 
 export class CodeCartographerMCP {
   private server: Server;
@@ -29,6 +31,7 @@ export class CodeCartographerMCP {
   private intelligenceTools!: IntelligenceTools;
   private automationTools!: AutomationTools;
   private monitoringTools!: MonitoringTools;
+  private projectTools!: ProjectIntelligenceTools;
 
   constructor() {
     this.server = new Server(
@@ -91,6 +94,8 @@ export class CodeCartographerMCP {
         this.patternEngine,
         this.database
       );
+      const projectEngine = new ProjectIntelligenceEngine(this.database);
+      this.projectTools = new ProjectIntelligenceTools(projectEngine, this.database);
       Logger.info('Tool collections initialized');
 
       Logger.info('In Memoria components initialized successfully');
@@ -109,7 +114,8 @@ export class CodeCartographerMCP {
           ...this.coreTools.tools,
           ...this.intelligenceTools.tools,
           ...this.automationTools.tools,
-          ...this.monitoringTools.tools
+          ...this.monitoringTools.tools,
+          ...this.projectTools.tools
         ]
       };
     });
@@ -191,6 +197,21 @@ export class CodeCartographerMCP {
 
       case 'get_project_blueprint':
         return await this.intelligenceTools.getProjectBlueprint(args);
+
+      case 'project_intelligence.get_blueprint':
+        return await this.projectTools.getProjectBlueprint(args);
+
+      case 'project_intelligence.find_feature_files':
+        return await this.projectTools.findFeatureFiles(args);
+
+      case 'work_memory.resume_session':
+        return await this.projectTools.resumeSession(args);
+
+      case 'work_memory.update_context':
+        return await this.projectTools.updateWorkContext(args);
+
+      case 'work_memory.record_decision':
+        return await this.projectTools.recordDecision(args);
 
       // Automation Tools
       case 'auto_learn_if_needed':

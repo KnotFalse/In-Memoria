@@ -1,0 +1,24 @@
+{
+  "preferredPatterns": [],
+  "codingStyle": {
+    "namingConventions": {
+      "functions": "camelCase",
+      "classes": "PascalCase",
+      "constants": "UPPER_CASE",
+      "variables": "camelCase"
+    },
+    "structuralPreferences": [
+      "modular_design",
+      "single_responsibility",
+      "dependency_injection"
+    ],
+    "testingApproach": "unit_testing_with_jest"
+  },
+  "expertiseAreas": [
+    "typescript",
+    "react",
+    "node.js",
+    "database_design"
+  ],
+  "recentFocus": []
+}

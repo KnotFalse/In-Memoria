@@ -98,6 +98,26 @@ impl NamingPatternAnalyzer {
             },
         ];
         self.naming_rules.insert("python".to_string(), python_rules);
+
+        // PHP naming rules (PSR compliance)
+        let php_rules = vec![
+            NamingRule {
+                rule_type: "PascalCase".to_string(),
+                pattern: r"^[A-Z][a-zA-Z0-9_]*$".to_string(),
+                confidence_weight: 0.9,
+            },
+            NamingRule {
+                rule_type: "camelCase".to_string(),
+                pattern: r"^[a-z][a-zA-Z0-9_]*$".to_string(),
+                confidence_weight: 0.85,
+            },
+            NamingRule {
+                rule_type: "SCREAMING_SNAKE_CASE".to_string(),
+                pattern: r"^[A-Z][A-Z0-9_]*$".to_string(),
+                confidence_weight: 0.85,
+            },
+        ];
+        self.naming_rules.insert("php".to_string(), php_rules);
     }
 
     /// Analyze naming patterns from semantic concepts
@@ -376,6 +396,26 @@ impl NamingPatternAnalyzer {
                     }
                 }
             }
+            "php" => {
+                let patterns = [
+                    r"function\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    r"class\s+([A-Z][a-zA-Z0-9_]*)",
+                    r"interface\s+([A-Z][a-zA-Z0-9_]*)",
+                    r"trait\s+([A-Z][a-zA-Z0-9_]*)",
+                    r"enum\s+([A-Z][a-zA-Z0-9_]*)",
+                    r"const\s+([A-Z_][A-Z0-9_]*)",
+                ];
+
+                for pattern_str in &patterns {
+                    if let Ok(regex) = Regex::new(pattern_str) {
+                        for captures in regex.captures_iter(code) {
+                            if let Some(name) = captures.get(1) {
+                                names.push(name.as_str().to_string());
+                            }
+                        }
+                    }
+                }
+            }
             _ => {} // Add more languages as needed
         }
         
@@ -410,6 +450,7 @@ impl PatternExtractor for NamingPatternAnalyzer {
                         "ts" | "tsx" => "typescript", 
                         "rs" => "rust",
                         "py" => "python",
+                        "php" | "phtml" | "inc" => "php",
                         _ => continue,
                     };
                     
@@ -525,6 +566,27 @@ mod tests {
     }
 
     #[test]
+    fn test_php_psr_naming_detection() {
+        let mut analyzer = NamingPatternAnalyzer::new();
+        let concepts = vec![
+            create_test_concept("UserController", "class", "UserController.php"),
+            create_test_concept("handleRequest", "method", "UserController.php"),
+            create_test_concept("MAX_USERS", "constant", "config.php"),
+        ];
+
+        let patterns = analyzer.analyze_concepts(&concepts, "php").unwrap();
+        assert!(!patterns.is_empty());
+
+        let pascal_case = patterns.iter().any(|p| p.description.contains("PascalCase"));
+        let camel_case = patterns.iter().any(|p| p.description.contains("camelCase"));
+        let screaming = patterns.iter().any(|p| p.description.contains("SCREAMING") || p.description.contains("CONSTANT_CASE"));
+
+        assert!(pascal_case);
+        assert!(camel_case);
+        assert!(screaming);
+    }
+
+    #[test]
     fn test_violation_detection() {
         let mut analyzer = NamingPatternAnalyzer::new();
         
@@ -606,5 +668,8 @@ mod tests {
         assert_eq!(analyzer.classify_name("PascalCase", "javascript"), Some("PascalCase".to_string()));
         assert_eq!(analyzer.classify_name("snake_case", "rust"), Some("snake_case".to_string()));
         assert_eq!(analyzer.classify_name("CONSTANT_CASE", "rust"), Some("SCREAMING_SNAKE_CASE".to_string()));
+        assert_eq!(analyzer.classify_name("UserController", "php"), Some("PascalCase".to_string()));
+        assert_eq!(analyzer.classify_name("handleRequest", "php"), Some("camelCase".to_string()));
+        assert_eq!(analyzer.classify_name("MAX_USERS", "php"), Some("SCREAMING_SNAKE_CASE".to_string()));
     }
 }
