@@ -6,6 +6,16 @@ import { fileURLToPath } from 'url';
 const require = createRequire(import.meta.url);
 
 function loadNativeBinary() {
+  // Check for explicit NAPI library path override
+  if (process.env.NAPI_RS_NATIVE_LIBRARY_PATH) {
+    try {
+      return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);
+    } catch (error) {
+      console.error(`[RUST-BINDINGS WARN] Failed to load from NAPI_RS_NATIVE_LIBRARY_PATH: ${error}`);
+      // Fall through to standard loading logic
+    }
+  }
+
   const { platform, arch } = process;
   
   // Map Node.js platform/arch to our package names
