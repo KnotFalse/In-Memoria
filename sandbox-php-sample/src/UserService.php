@@ -3,10 +3,15 @@ declare(strict_types=1);
 
 namespace App\Service;
 
+use App\Model\User;
+use App\Repository\UserRepository;
+
 final class UserService
 {
-    public function __construct(private readonly AuditLogger $logger)
-    {
+    public function __construct(
+        private readonly AuditLogger $logger,
+        private readonly UserRepository $repository,
+    ) {
     }
 
     public function findUser(int $id): ?User
@@ -16,16 +21,11 @@ final class UserService
             return null;
         }
 
-        $user = $this->load($id);
+        $user = $this->repository->find($id);
         if ($user === null) {
             $this->logger->info('User not found', ['id' => $id]);
         }
 
         return $user;
-    }
-
-    private function load(int $id): ?User
-    {
-        return null;
     }
 }
